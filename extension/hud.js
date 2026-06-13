@@ -18,6 +18,16 @@ export const IziGhostHUDWidget = GObject.registerClass(
             });
 
             this._hudManager = hudManager;
+            
+            // Явно задаем размер оверлея
+            this.set_size(400, 150); 
+            
+            // Важнейший хак: ставим непрозрачность 254 вместо 255.
+            // Это абсолютно незаметно для глаза, но заставляет Mutter считать оверлей 
+            // полупрозрачным и отключает оптимизацию culling (отсечение отрисовки окон под нами).
+            // В результате при записи/скриншоте под нашим оверлеем корректно рендерится VS Code 
+            // вместо черного квадрата.
+            this.set_opacity(254);
 
             // Заголовок
             let headerBox = new St.BoxLayout({
@@ -59,7 +69,7 @@ export class IziGhostHUD {
         this._widget = null;
         this._visible = false;
         
-        // Размещаем по умолчанию в левом верхнем углу
+        // Размещаем по умолчанию в левом верхнем углу (координаты X, Y)
         this._x = 100;
         this._y = 100;
     }
@@ -70,11 +80,15 @@ export class IziGhostHUD {
         if (!this._widget) {
             this._widget = new IziGhostHUDWidget(this);
             this._widget.set_position(this._x, this._y);
+            this._widget.set_size(400, 150); // Явная установка размера при добавлении
         }
 
         Main.layoutManager.uiGroup.add_child(this._widget);
         this._visible = true;
-        this._extension.indicator.updateLamp(true);
+        
+        if (this._extension.indicator) {
+            this._extension.indicator.updateLamp(true);
+        }
     }
 
     hide() {
@@ -82,7 +96,10 @@ export class IziGhostHUD {
         
         Main.layoutManager.uiGroup.remove_child(this._widget);
         this._visible = false;
-        this._extension.indicator.updateLamp(false);
+        
+        if (this._extension.indicator) {
+            this._extension.indicator.updateLamp(false);
+        }
     }
 
     toggle() {
