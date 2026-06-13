@@ -204,7 +204,7 @@ impl PreferencesState {
                     let is_active = Some(id.clone()) == self.active_id;
                     
                     let text = if is_active {
-                        format!("★ {}", id)
+                        format!("[Акт] {}", id)
                     } else {
                         id.clone()
                     };
@@ -232,7 +232,7 @@ impl PreferencesState {
             // Кнопка создания нового профиля
             let create_btn = ui.add_sized(
                 [ui.available_width() - 4.0, 36.0],
-                egui::Button::new(RichText::new("➕ Новый профиль").strong().color(Color32::WHITE))
+                egui::Button::new(RichText::new("+ Новый профиль").strong().color(Color32::WHITE))
                     .fill(Color32::from_rgb(16, 185, 129)) // Green
             );
             
@@ -241,7 +241,7 @@ impl PreferencesState {
                     "profile_{}",
                     std::time::SystemTime::now()
                         .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap()
+                        .expect("System time is set before Unix Epoch")
                         .as_millis() % 10000
                 );
                 let new_profile = Profile {
@@ -328,7 +328,7 @@ impl PreferencesState {
                 ui.horizontal(|ui| {
                     ui.label(RichText::new(msg_clone).color(color).strong());
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui.button("✕").clicked() {
+                        if ui.button("x").clicked() {
                             clear_message = true;
                         }
                     });
@@ -386,9 +386,9 @@ impl PreferencesState {
                 // Простая валидация пути
                 let path_exists = std::path::Path::new(&profile.cv_path).exists() && !profile.cv_path.is_empty();
                 if path_exists {
-                    ui.label(RichText::new("✔").color(Color32::GREEN));
+                    ui.label(RichText::new("[OK]").color(Color32::GREEN));
                 } else if !profile.cv_path.is_empty() {
-                    ui.label(RichText::new("❌").color(Color32::RED));
+                    ui.label(RichText::new("[ERR]").color(Color32::RED));
                 }
             });
             
@@ -410,9 +410,9 @@ impl PreferencesState {
                 
                 let path_exists = std::path::Path::new(&profile.vacancy_path).exists() && !profile.vacancy_path.is_empty();
                 if path_exists {
-                    ui.label(RichText::new("✔").color(Color32::GREEN));
+                    ui.label(RichText::new("[OK]").color(Color32::GREEN));
                 } else if !profile.vacancy_path.is_empty() {
-                    ui.label(RichText::new("❌").color(Color32::RED));
+                    ui.label(RichText::new("[ERR]").color(Color32::RED));
                 }
             });
 
@@ -467,7 +467,7 @@ impl PreferencesState {
                 ui.horizontal(|ui| {
                     ui.label("API ключ LLM:");
                     ui.add(egui::TextEdit::singleline(llm_key_input).password(!*show_llm_key));
-                    if ui.button(if *show_llm_key { "👁" } else { "🙈" }).clicked() {
+                    if ui.button(if *show_llm_key { "Скрыть" } else { "Показать" }).clicked() {
                         *show_llm_key = !*show_llm_key;
                     }
                 });
@@ -508,7 +508,7 @@ impl PreferencesState {
                 ui.horizontal(|ui| {
                     ui.label("API ключ ASR:");
                     ui.add(egui::TextEdit::singleline(asr_key_input).password(!*show_asr_key));
-                    if ui.button(if *show_asr_key { "👁" } else { "🙈" }).clicked() {
+                    if ui.button(if *show_asr_key { "Скрыть" } else { "Показать" }).clicked() {
                         *show_asr_key = !*show_asr_key;
                     }
                 });
@@ -521,7 +521,7 @@ impl PreferencesState {
                 // Кнопка Сохранить
                 let save_btn = ui.add_sized(
                     [100.0, 36.0],
-                    egui::Button::new(RichText::new("💾 Сохранить").strong().color(Color32::WHITE)).fill(Color32::from_rgb(79, 70, 229))
+                    egui::Button::new(RichText::new("Сохранить").strong().color(Color32::WHITE)).fill(Color32::from_rgb(79, 70, 229))
                 );
 
                 if save_btn.clicked() {
@@ -541,7 +541,7 @@ impl PreferencesState {
                 let active_btn = ui.add_enabled(
                     !is_active,
                     egui::Button::new(
-                        RichText::new(if is_active { "★ Активен" } else { "☆ Использовать" }).strong().color(Color32::WHITE)
+                        RichText::new(if is_active { "[Активен]" } else { "Использовать" }).strong().color(Color32::WHITE)
                     ).fill(Color32::from_rgb(16, 185, 129))
                     .min_size(Vec2::new(130.0, 36.0))
                 );
@@ -571,7 +571,7 @@ impl PreferencesState {
                     // Кнопка Удалить
                     let delete_btn = ui.add_sized(
                         [100.0, 36.0],
-                        egui::Button::new(RichText::new("🗑 Удалить").strong().color(Color32::WHITE)).fill(Color32::from_rgb(220, 38, 38))
+                        egui::Button::new(RichText::new("Удалить").strong().color(Color32::WHITE)).fill(Color32::from_rgb(220, 38, 38))
                     );
 
                     if delete_btn.clicked() {
