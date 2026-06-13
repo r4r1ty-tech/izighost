@@ -1,0 +1,55 @@
+[workspace]
+resolver = "2"
+members = ["crates/common", "app", "daemon"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "WTFPL"
+repository = "https://github.com/izighost/izighost"
+
+[workspace.dependencies]
+# async runtime
+tokio = { version = "1.40", features = ["full"] }
+futures = "0.3"
+
+# D-Bus
+zbus = { version = "4.4", features = ["tokio"] }
+zvariant = "4"
+
+# serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml = "0.9"
+toml = "0.8"
+
+# HTTP
+reqwest = { version = "0.12", features = ["json", "stream", "rustls-tls"], default-features = false }
+
+# logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+# errors
+anyhow = "1"
+thiserror = "1"
+
+# time
+chrono = { version = "0.4", features = ["serde"] }
+
+# file parsing
+kreuzberg = "5.0.0-rc.10"  # PDF + Office + images → markdown/text (Rust-first, MIT, async)
+leptess = "0.14"           # Tesseract OCR (Rust bindings, in-process)
+secret-service = { version = "5", features = ["rt-tokio-crypto-rust"] }
+pulldown-cmark = "0.12"    # markdown rendering (shared with app for prompt rendering)
+
+# CLI / config
+clap = { version = "4", features = ["derive"] }
+
+# ---- app-only ----
+eframe = "0.34"
+ashpd = "0.10"                              # XDG portals
+syntect = "5"                                # syntax highlighting engine (pure-Rust, не GTK-locked)
+
+# ---- daemon-only ----
+pipewire = "0.10"

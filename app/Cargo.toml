@@ -1,0 +1,18 @@
+[package]
+name = "izighost"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+izighost-common = { path = "../crates/common" }
+eframe.workspace = true
+ashpd.workspace = true
+syntect.workspace = true
+zbus.workspace = true
+tokio = { workspace = true, features = ["full"] }
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true

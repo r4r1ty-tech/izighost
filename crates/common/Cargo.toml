@@ -1,0 +1,12 @@
+[package]
+name = "izighost-common"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+secret-service.workspace = true
+thiserror.workspace = true
+zbus.workspace = true
+zvariant = { workspace = true }
