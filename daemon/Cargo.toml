@@ -20,5 +20,6 @@ thiserror.workspace = true
 chrono.workspace = true
 kreuzberg.workspace = true
 leptess.workspace = true
+image.workspace = true
 pipewire.workspace = true
 clap.workspace = true

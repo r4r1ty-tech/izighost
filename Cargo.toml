@@ -40,6 +40,7 @@ chrono = { version = "0.4", features = ["serde"] }
 # file parsing
 kreuzberg = "5.0.0-rc.10"  # PDF + Office + images → markdown/text (Rust-first, MIT, async)
 leptess = "0.14"           # Tesseract OCR (Rust bindings, in-process)
+image = { version = "0.25", default-features = false, features = ["png"] }
 secret-service = { version = "5", features = ["rt-tokio-crypto-rust"] }
 pulldown-cmark = "0.12"    # markdown rendering (shared with app for prompt rendering)
 
