@@ -89,6 +89,12 @@ impl RvmsManager {
         }
     }
 
+    /// Получить активный PipeWire Node ID виртуального монитора.
+    pub async fn get_pipewire_node_id(&self) -> Option<u32> {
+        let state = self.state.lock().await;
+        state.pipewire_node_id
+    }
+
     pub async fn start(&self) -> Result<u32, String> {
         let mut state = self.state.lock().await;
 
@@ -228,5 +234,16 @@ impl RvmsManager {
         state.pipewire_node_id = None;
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_rvms_manager_get_node_id_initially_none() {
+        let manager = RvmsManager::new();
+        assert_eq!(manager.get_pipewire_node_id().await, None);
     }
 }
