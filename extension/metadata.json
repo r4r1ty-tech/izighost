@@ -1,0 +1,10 @@
+{
+  "uuid": "window-pin-bridge@gnome.extension",
+  "name": "Window Pin D-Bus Bridge",
+  "description": "Предоставляет защищенный D-Bus интерфейс для перевода окон в режим отображения поверх всех приложений в нативной сессии Wayland.",
+  "shell-version": [
+    "45", "46", "47", "48", "49", "50"
+  ],
+  "url": "https://github.com/flexagoon/focused-window-dbus",
+  "version": 1
+}

@@ -90,7 +90,7 @@ impl HudState {
             .corner_radius(12.0);
 
         frame.show(ui, |ui| {
-            self.draw_header(ui);
+            self.draw_header(ui, dbus_client);
             ui.separator();
             self.draw_chat_history(ui);
             ui.separator();
@@ -99,7 +99,7 @@ impl HudState {
     }
 
     /// Заголовок HUD
-    fn draw_header(&mut self, ui: &mut egui::Ui) {
+    fn draw_header(&mut self, ui: &mut egui::Ui, dbus_client: &Option<Arc<DaemonClient>>) {
         ui.horizontal(|ui| {
             // Заголовок HUD
             ui.label(RichText::new("IziGhost HUD").strong().color(Color32::WHITE));
@@ -174,6 +174,24 @@ impl HudState {
                     };
                     ui.ctx()
                         .send_viewport_cmd(egui::ViewportCommand::WindowLevel(level));
+
+                    if let Some(ref client) = dbus_client {
+                        let client_clone = client.clone();
+                        let is_pinned = self.is_pinned;
+                        tokio::spawn(async move {
+                            let pid = std::process::id();
+                            let res = if is_pinned {
+                                client_clone.pin_window_by_pid(pid).await
+                            } else {
+                                client_clone.unpin_window_by_pid(pid).await
+                            };
+                            match res {
+                                Ok(true) => println!("Окно HUD статус pinning изменен: {}", is_pinned),
+                                Ok(false) => eprintln!("Mutter не нашел окно с PID {} для изменения статуса.", pid),
+                                Err(e) => eprintln!("Ошибка D-Bus при переключении pinning: {:?}", e),
+                            }
+                        });
+                    }
                 }
 
                 ui.add_space(2.0);

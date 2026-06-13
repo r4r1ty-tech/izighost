@@ -46,14 +46,26 @@ pub trait Daemon {
     async fn error_occurred(&self, message: String) -> zbus::Result<()>;
 }
 
+#[proxy(
+    interface = "org.gnome.Shell.Extensions.WindowPinBridge",
+    default_service = "org.gnome.Shell",
+    default_path = "/org/gnome/Shell/Extensions/WindowPinBridge"
+)]
+pub trait WindowPinBridge {
+    async fn pin_window_by_pid(&self, pid: u32) -> zbus::Result<bool>;
+    async fn unpin_window_by_pid(&self, pid: u32) -> zbus::Result<bool>;
+}
+
 pub struct DaemonClient {
     proxy: DaemonProxy<'static>,
+    pin_proxy: WindowPinBridgeProxy<'static>,
 }
 
 impl DaemonClient {
     pub async fn connect() -> zbus::Result<(Self, UnboundedReceiver<DaemonSignal>)> {
         let conn = Connection::session().await?;
         let proxy = DaemonProxy::new(&conn).await?;
+        let pin_proxy = WindowPinBridgeProxy::new(&conn).await?;
         let (tx, rx) = unbounded_channel();
 
         // Запуск фоновой задачи для прослушивания сигналов
@@ -64,7 +76,7 @@ impl DaemonClient {
             }
         });
 
-        Ok((Self { proxy }, rx))
+        Ok((Self { proxy, pin_proxy }, rx))
     }
 
     pub async fn start_rvms(&self) -> zbus::Result<u32> {
@@ -113,6 +125,14 @@ impl DaemonClient {
 
     pub async fn get_active_profile(&self) -> zbus::Result<Profile> {
         self.proxy.get_active_profile().await
+    }
+
+    pub async fn pin_window_by_pid(&self, pid: u32) -> zbus::Result<bool> {
+        self.pin_proxy.pin_window_by_pid(pid).await
+    }
+
+    pub async fn unpin_window_by_pid(&self, pid: u32) -> zbus::Result<bool> {
+        self.pin_proxy.unpin_window_by_pid(pid).await
     }
 }
 
