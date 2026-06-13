@@ -92,7 +92,7 @@ impl HudState {
 
     /// Заголовок HUD
     fn draw_header(&mut self, ui: &mut egui::Ui) {
-        ui.horizontal(|ui| {
+        let header_response = ui.horizontal(|ui| {
             ui.label(RichText::new("IziGhost HUD").strong().color(Color32::WHITE));
             ui.add_space(4.0);
 
@@ -122,6 +122,13 @@ impl HudState {
                 }
             });
         });
+
+        // Позволяем перетаскивать окно за заголовок
+        let rect = header_response.response.rect;
+        let drag_response = ui.interact(rect, ui.id().with("hud_drag_area"), egui::Sense::drag());
+        if drag_response.dragged() {
+            ui.ctx().send_viewport_cmd(egui::ViewportCommand::StartDrag);
+        }
     }
 
     /// Список сообщений чата
