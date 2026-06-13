@@ -3,6 +3,7 @@ use izighost_common::Profile;
 use izighost_daemon::dbus_server::DaemonInterface;
 use izighost_daemon::profile::ProfileManager;
 use izighost_daemon::context_store::ContextStore;
+use izighost_daemon::rvms::RvmsManager;
 
 #[proxy(
     interface = "com.izighost.Daemon",
@@ -36,7 +37,8 @@ async fn test_dbus_stubs() {
     // Инициализируем менеджеров
     let profile_manager = ProfileManager::new();
     let context_store = ContextStore::new();
-    let interface = DaemonInterface::new(profile_manager, context_store);
+    let rvms_manager = RvmsManager::new();
+    let interface = DaemonInterface::new(profile_manager, context_store, rvms_manager);
 
     // Запускаем сервер на уникальном временном имени/пути, чтобы не конфликтовать с основным демоном
     let object_path = "/com/izighost/DaemonTest";
@@ -65,7 +67,7 @@ async fn test_dbus_stubs() {
 
     // 3. Проверяем вызовы методов
     let pw_id = proxy.start_rvms().await.expect("start_rvms failed");
-    assert_eq!(pw_id, 42);
+    assert!(pw_id > 0);
 
     proxy.stop_rvms().await.expect("stop_rvms failed");
 
