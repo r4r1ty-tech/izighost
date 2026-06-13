@@ -169,8 +169,8 @@ impl HudState {
                             } else {
                                 client_clone.unpin_window_by_pid(pid).await
                             };
-                            if let Err(e) = res {
-                                eprintln!("Ошибка D-Bus при переключении pinning: {:?}", e);
+                            if let Err(_) = res {
+                                // Ошибка pinning — предупреждение показывается в UI баннере
                             }
                         });
                     }
