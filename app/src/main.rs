@@ -10,6 +10,9 @@ use window::hud::HudState;
 use window::preferences::{PreferencesState, GuiEvent};
 
 fn main() -> Result<(), eframe::Error> {
+    // Принудительно используем X11/XWayland для стабильного AlwaysOnTop в GNOME Wayland
+    std::env::set_var("WINIT_UNIX_BACKEND", "x11");
+
     // Инициализируем Tokio рантайм для zbus
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
