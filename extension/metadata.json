@@ -1,0 +1,12 @@
+{
+  "uuid": "izighost@izighost.org",
+  "name": "IziGhost Overlay",
+  "description": "Assistant HUD overlay that is invisible to screen sharing and recording.",
+  "shell-version": [
+    "45",
+    "46",
+    "47",
+    "48",
+    "50"
+  ]
+}

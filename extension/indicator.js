@@ -13,12 +13,12 @@ export const IziGhostIndicator = GObject.registerClass(
             super._init(0.5, 'IziGhost Indicator', false);
             this._extension = extension;
 
-            // Лампочка-индикатор (🟢 = скрыто, 🔴 = активно)
-            this._lamp = new St.Label({
-                text: '🟢',
+            // Текстовый статус на панели статус-бара
+            this._statusLabel = new St.Label({
+                text: 'IziGhost: 🟢 Off',
                 y_align: Clutter.ActorAlign.CENTER,
             });
-            this.add_child(this._lamp);
+            this.add_child(this._statusLabel);
 
             // Клик по индикатору переключает видимость HUD
             this.connect('button-press-event', () => {
@@ -26,15 +26,15 @@ export const IziGhostIndicator = GObject.registerClass(
                 return Clutter.EVENT_STOP;
             });
 
-            // Добавляем в статус-бар
+            // Добавляем в статус-бар GNOME
             Main.panel.addToStatusArea('izighost-indicator', this);
         }
 
         updateLamp(visible) {
             if (visible) {
-                this._lamp.set_text('🔴');
+                this._statusLabel.set_text('IziGhost: 🔴 On');
             } else {
-                this._lamp.set_text('🟢');
+                this._statusLabel.set_text('IziGhost: 🟢 Off');
             }
         }
 

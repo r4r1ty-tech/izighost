@@ -2,6 +2,13 @@ use eframe::egui;
 use eframe::egui::{Color32, RichText, ViewportCommand};
 
 fn main() -> Result<(), eframe::Error> {
+    // Создаем рантайм Tokio для zbus и других асинхронных задач
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .expect("Не удалось создать рантайм Tokio");
+    let _guard = rt.enter();
+
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("IziGhost")
