@@ -10,16 +10,19 @@ mod window;
 use window::hud::HudState;
 use window::preferences::{GuiEvent, PreferencesState};
 
-fn install_and_enable_extension() -> std::io::Result<()> {
-    let home = std::env::var("HOME")
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::NotFound, e))?;
+/// Установка GNOME Shell расширения для Always-On-Top на Wayland.
+/// Не крашит приложение при ошибках — просто логирует.
+fn install_extension_files() {
+    let home = match std::env::var("HOME") {
+        Ok(h) => h,
+        Err(_) => return,
+    };
     let ext_dir = std::path::PathBuf::from(home)
         .join(".local/share/gnome-shell/extensions/window-pin-bridge@gnome.extension");
 
-    std::fs::create_dir_all(&ext_dir)?;
-
-    let metadata_path = ext_dir.join("metadata.json");
-    let extension_path = ext_dir.join("extension.js");
+    if std::fs::create_dir_all(&ext_dir).is_err() {
+        return;
+    }
 
     let metadata_content = include_str!("../../extension/metadata.json");
     let extension_content = include_str!("../../extension/extension.js");
@@ -32,43 +35,96 @@ fn install_and_enable_extension() -> std::io::Result<()> {
         }
     };
 
-    let mut updated = false;
+    let metadata_path = ext_dir.join("metadata.json");
+    let extension_path = ext_dir.join("extension.js");
+
     if needs_write(&metadata_path, metadata_content) {
-        std::fs::write(&metadata_path, metadata_content)?;
-        updated = true;
+        let _ = std::fs::write(&metadata_path, metadata_content);
     }
     if needs_write(&extension_path, extension_content) {
-        std::fs::write(&extension_path, extension_content)?;
-        updated = true;
+        let _ = std::fs::write(&extension_path, extension_content);
     }
 
-    if updated {
-        println!("Установлены/обновлены файлы расширения Window Pin Bridge.");
-    }
-
-    // Включаем расширение через утилиту gnome-extensions
-    let status = std::process::Command::new("gnome-extensions")
+    // Пытаемся включить расширение (работает только после перелогина)
+    let _ = std::process::Command::new("gnome-extensions")
         .arg("enable")
         .arg("window-pin-bridge@gnome.extension")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
         .status();
+}
 
-    match status {
-        Ok(s) if s.success() => {
-            println!("Расширение Window Pin Bridge успешно включено.");
-        }
-        _ => {
-            eprintln!("Не удалось включить расширение Window Pin Bridge через gnome-extensions.");
-        }
-    }
+/// Применение глобальной тёмной темы к egui Visuals
+fn apply_dark_theme(ctx: &egui::Context) {
+    let mut visuals = egui::Visuals::dark();
 
-    Ok(())
+    // Фон окон и панелей
+    visuals.panel_fill = Color32::from_rgb(20, 20, 22);
+    visuals.window_fill = Color32::from_rgb(20, 20, 22);
+    visuals.extreme_bg_color = Color32::from_rgb(12, 12, 14);
+    visuals.faint_bg_color = Color32::from_rgb(30, 30, 34);
+    visuals.code_bg_color = Color32::from_rgb(30, 30, 34);
+
+    // Виджеты — неактивные
+    visuals.widgets.inactive.bg_fill = Color32::from_rgb(40, 40, 44);
+    visuals.widgets.inactive.bg_stroke = egui::Stroke::new(1.0, Color32::from_rgb(55, 55, 60));
+    visuals.widgets.inactive.fg_stroke = egui::Stroke::new(1.0, Color32::from_rgb(200, 200, 205));
+    visuals.widgets.inactive.corner_radius = egui::CornerRadius::same(6);
+
+    // Виджеты — при наведении
+    visuals.widgets.hovered.bg_fill = Color32::from_rgb(55, 55, 60);
+    visuals.widgets.hovered.bg_stroke = egui::Stroke::new(1.0, Color32::from_rgb(99, 102, 241));
+    visuals.widgets.hovered.fg_stroke = egui::Stroke::new(1.0, Color32::WHITE);
+    visuals.widgets.hovered.corner_radius = egui::CornerRadius::same(6);
+
+    // Виджеты — активные (нажатые)
+    visuals.widgets.active.bg_fill = Color32::from_rgb(65, 65, 70);
+    visuals.widgets.active.bg_stroke = egui::Stroke::new(1.0, Color32::from_rgb(99, 102, 241));
+    visuals.widgets.active.fg_stroke = egui::Stroke::new(1.0, Color32::WHITE);
+    visuals.widgets.active.corner_radius = egui::CornerRadius::same(6);
+
+    // Виджеты — открытые (выпадающие меню и т.п.)
+    visuals.widgets.open.bg_fill = Color32::from_rgb(50, 50, 55);
+    visuals.widgets.open.bg_stroke = egui::Stroke::new(1.0, Color32::from_rgb(99, 102, 241));
+    visuals.widgets.open.fg_stroke = egui::Stroke::new(1.0, Color32::WHITE);
+    visuals.widgets.open.corner_radius = egui::CornerRadius::same(6);
+
+    // Виджеты — невзаимодействуемые
+    visuals.widgets.noninteractive.bg_fill = Color32::from_rgb(25, 25, 28);
+    visuals.widgets.noninteractive.bg_stroke =
+        egui::Stroke::new(0.5, Color32::from_rgb(50, 50, 55));
+    visuals.widgets.noninteractive.fg_stroke =
+        egui::Stroke::new(1.0, Color32::from_rgb(180, 180, 185));
+    visuals.widgets.noninteractive.corner_radius = egui::CornerRadius::same(6);
+
+    // Выделение текста
+    visuals.selection.bg_fill = Color32::from_rgba_unmultiplied(99, 102, 241, 100);
+    visuals.selection.stroke = egui::Stroke::new(1.0, Color32::from_rgb(99, 102, 241));
+
+    // Скругление окон
+    visuals.window_corner_radius = egui::CornerRadius::same(10);
+    visuals.menu_corner_radius = egui::CornerRadius::same(8);
+
+    // Тени
+    visuals.popup_shadow = egui::Shadow {
+        offset: [0, 4],
+        blur: 12,
+        spread: 0,
+        color: Color32::from_black_alpha(80),
+    };
+    visuals.window_shadow = egui::Shadow {
+        offset: [0, 4],
+        blur: 16,
+        spread: 0,
+        color: Color32::from_black_alpha(60),
+    };
+
+    ctx.set_visuals(visuals);
 }
 
 fn main() -> Result<(), eframe::Error> {
-    // Автоматически устанавливаем и активируем расширение GNOME Shell для Wayland Always-On-Top
-    if let Err(e) = install_and_enable_extension() {
-        eprintln!("Ошибка автоматической установки расширения Window Pin Bridge: {:?}", e);
-    }
+    // Устанавливаем файлы расширения (без крашей при ошибках)
+    install_extension_files();
 
     // Инициализируем Tokio рантайм для zbus
     let rt = tokio::runtime::Builder::new_multi_thread()
@@ -110,7 +166,10 @@ fn main() -> Result<(), eframe::Error> {
     eframe::run_native(
         "IziGhost HUD",
         options,
-        Box::new(move |_cc| Ok(Box::new(IziGhostApp::new(dbus_client, signal_rx)))),
+        Box::new(move |cc| {
+            apply_dark_theme(&cc.egui_ctx);
+            Ok(Box::new(IziGhostApp::new(dbus_client, signal_rx)))
+        }),
     )
 }
 
@@ -137,21 +196,17 @@ impl IziGhostApp {
         let preferences_state = PreferencesState::new(gui_event_tx.clone());
         preferences_state.init(&dbus_client);
 
-        // Автоматически отправляем запрос на закрепление окна при старте через 200 мс
-        let event_tx_clone = gui_event_tx.clone();
+        // Пытаемся закрепить окно через расширение (тихо, без спама)
         if let Some(ref client) = dbus_client {
             let client_clone = client.clone();
+            let event_tx_clone = gui_event_tx.clone();
             tokio::spawn(async move {
-                tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
                 let pid = std::process::id();
                 match client_clone.pin_window_by_pid(pid).await {
-                    Ok(true) => println!("Окно HUD успешно закреплено поверх всех окон Wayland."),
-                    Ok(false) => {
-                        eprintln!("Mutter не нашел окно с PID {}.", pid);
-                        let _ = event_tx_clone.send(GuiEvent::ExtensionNotLoaded);
-                    }
-                    Err(e) => {
-                        eprintln!("Ошибка D-Bus при первоначальном закреплении окна: {:?}", e);
+                    Ok(true) => {} // Успех — молча
+                    _ => {
+                        // Расширение не загружено — показываем предупреждение
                         let _ = event_tx_clone.send(GuiEvent::ExtensionNotLoaded);
                     }
                 }
@@ -209,7 +264,6 @@ impl eframe::App for IziGhostApp {
 
         // 2. Отрисовка дополнительного окна настроек (если флаг активен)
         if self.hud_state.show_preferences {
-            // Временно достаем preferences_state для передачи в замыкание
             let mut preferences_state = std::mem::replace(
                 &mut self.preferences_state,
                 PreferencesState::new(self.gui_event_tx.clone()),
@@ -220,7 +274,7 @@ impl eframe::App for IziGhostApp {
             ui.ctx().show_viewport_immediate(
                 egui::ViewportId::from_hash_of("preferences_viewport"),
                 egui::ViewportBuilder::default()
-                    .with_title("Настройки IziGhost")
+                    .with_title("IziGhost — Настройки")
                     .with_inner_size([650.0, 720.0])
                     .with_decorations(true)
                     .with_transparent(false),
@@ -228,16 +282,17 @@ impl eframe::App for IziGhostApp {
                     if ctx.input(|i| i.viewport().close_requested()) {
                         show_preferences = false;
                     }
-                    let frame = egui::Frame::NONE
-                        .fill(Color32::from_rgb(20, 20, 22))
-                        .inner_margin(8.0);
-                    egui::CentralPanel::default().frame(frame).show_inside(ctx, |ui| {
+
+                    // Применяем ту же тёмную тему к окну настроек
+                    apply_dark_theme(ctx);
+
+                    #[allow(deprecated)]
+                    egui::CentralPanel::default().show(ctx, |ui| {
                         preferences_state.draw(ui, &dbus_client);
                     });
                 },
             );
 
-            // Возвращаем preferences_state обратно в структуру
             self.preferences_state = preferences_state;
             self.hud_state.show_preferences = show_preferences;
         }
