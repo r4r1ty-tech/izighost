@@ -92,8 +92,17 @@ impl HudState {
 
     /// Заголовок HUD
     fn draw_header(&mut self, ui: &mut egui::Ui) {
-        let header_response = ui.horizontal(|ui| {
-            ui.label(RichText::new("IziGhost HUD").strong().color(Color32::WHITE));
+        ui.horizontal(|ui| {
+            // Делаем заголовок перетаскиваемым
+            let title_response = ui.add(
+                egui::Label::new(RichText::new("IziGhost HUD").strong().color(Color32::WHITE))
+                    .sense(egui::Sense::drag())
+            ).on_hover_text("Зажмите ЛКМ для перемещения окна");
+
+            if title_response.dragged() {
+                ui.ctx().send_viewport_cmd(egui::ViewportCommand::StartDrag);
+            }
+
             ui.add_space(4.0);
 
             // Бейдж активного профиля
@@ -122,13 +131,6 @@ impl HudState {
                 }
             });
         });
-
-        // Позволяем перетаскивать окно за заголовок
-        let rect = header_response.response.rect;
-        let drag_response = ui.interact(rect, ui.id().with("hud_drag_area"), egui::Sense::drag());
-        if drag_response.dragged() {
-            ui.ctx().send_viewport_cmd(egui::ViewportCommand::StartDrag);
-        }
     }
 
     /// Список сообщений чата
