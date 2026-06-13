@@ -5,6 +5,7 @@ use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 
 mod dbus;
 mod window;
+mod hotkeys;
 
 use window::hud::HudState;
 use window::preferences::{PreferencesState, GuiEvent};
@@ -28,6 +29,16 @@ fn main() -> Result<(), eframe::Error> {
             (None, None)
         }
     };
+
+    // Инициализируем глобальные хоткеи в фоновом режиме
+    if let Some(ref client) = dbus_client {
+        let client_clone = client.clone();
+        rt.spawn(async move {
+            if let Err(e) = hotkeys::init_hotkeys(Some(client_clone)).await {
+                eprintln!("Ошибка инициализации глобальных хоткеев: {:?}", e);
+            }
+        });
+    }
 
     // Опции для главного оверлей-окна HUD (прозрачное, без рамок)
     let options = eframe::NativeOptions {
