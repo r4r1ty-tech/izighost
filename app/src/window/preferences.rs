@@ -1,9 +1,9 @@
+use crate::dbus::DaemonClient;
 use eframe::egui;
 use eframe::egui::{Color32, RichText, Vec2};
+use izighost_common::{KeyringStore, Profile};
 use std::sync::Arc;
 use tokio::sync::mpsc::UnboundedSender;
-use izighost_common::{Profile, KeyringStore};
-use crate::dbus::DaemonClient;
 
 /// События, отправляемые из фоновых асинхронных задач в главный поток GUI
 #[derive(Debug, Clone)]
@@ -22,19 +22,19 @@ pub struct PreferencesState {
     pub profiles: Vec<String>,
     pub selected_id: Option<String>,
     pub active_id: Option<String>,
-    
+
     // Форма редактирования текущего профиля
     pub edit_profile: Option<Profile>,
     pub llm_key_input: String,
     pub asr_key_input: String,
     pub show_llm_key: bool,
     pub show_asr_key: bool,
-    
+
     // Менеджмент ошибок и уведомлений
     pub status_message: Option<(String, bool)>, // (текст, это_ошибка)
     pub is_rvms_active: bool,
     pub pipewire_node_id: Option<u32>,
-    
+
     // Канал для отправки событий из фоновых задач
     pub event_tx: UnboundedSender<GuiEvent>,
 }
@@ -68,7 +68,8 @@ impl PreferencesState {
                         let _ = tx.send(GuiEvent::ProfilesLoaded(list));
                     }
                     Err(e) => {
-                        let _ = tx.send(GuiEvent::Error(format!("Ошибка загрузки профилей: {}", e)));
+                        let _ =
+                            tx.send(GuiEvent::Error(format!("Ошибка загрузки профилей: {}", e)));
                     }
                 }
 
@@ -79,7 +80,10 @@ impl PreferencesState {
                         }
                     }
                     Err(e) => {
-                        let _ = tx.send(GuiEvent::Error(format!("Ошибка получения активного профиля: {}", e)));
+                        let _ = tx.send(GuiEvent::Error(format!(
+                            "Ошибка получения активного профиля: {}",
+                            e
+                        )));
                     }
                 }
             });
@@ -109,7 +113,7 @@ impl PreferencesState {
             }
             GuiEvent::ProfileSaved(profile) => {
                 self.status_message = Some(("Профиль успешно сохранен!".to_string(), false));
-                
+
                 // Перезагружаем список
                 if !self.profiles.contains(&profile.id) {
                     self.profiles.push(profile.id.clone());
@@ -136,7 +140,10 @@ impl PreferencesState {
             GuiEvent::RvmsStarted(node_id) => {
                 self.is_rvms_active = true;
                 self.pipewire_node_id = Some(node_id);
-                self.status_message = Some((format!("Виртуальный монитор запущен (PW Node ID: {})", node_id), false));
+                self.status_message = Some((
+                    format!("Виртуальный монитор запущен (PW Node ID: {})", node_id),
+                    false,
+                ));
             }
             GuiEvent::RvmsStopped => {
                 self.is_rvms_active = false;
@@ -159,14 +166,21 @@ impl PreferencesState {
                     Ok(profile) => {
                         let llm_key_name = format!("llm_api_key_{}", id);
                         let asr_key_name = format!("asr_api_key_{}", id);
-                        
-                        let llm_key = KeyringStore::get_password(&llm_key_name).await.unwrap_or(None);
-                        let asr_key = KeyringStore::get_password(&asr_key_name).await.unwrap_or(None);
-                        
+
+                        let llm_key = KeyringStore::get_password(&llm_key_name)
+                            .await
+                            .unwrap_or(None);
+                        let asr_key = KeyringStore::get_password(&asr_key_name)
+                            .await
+                            .unwrap_or(None);
+
                         let _ = tx.send(GuiEvent::ProfileDetailsLoaded(profile, llm_key, asr_key));
                     }
                     Err(e) => {
-                        let _ = tx.send(GuiEvent::Error(format!("Ошибка загрузки профиля '{}': {}", id, e)));
+                        let _ = tx.send(GuiEvent::Error(format!(
+                            "Ошибка загрузки профиля '{}': {}",
+                            id, e
+                        )));
                     }
                 }
             });
@@ -176,7 +190,7 @@ impl PreferencesState {
     /// Рендеринг интерфейса настроек
     pub fn draw(&mut self, ui: &mut egui::Ui, dbus_client: &Option<Arc<DaemonClient>>) {
         ui.style_mut().spacing.item_spacing = Vec2::new(8.0, 12.0);
-        
+
         // Разделяем экран на две колонки: слева список профилей, справа — редактирование
         egui::Panel::left("sidebar_panel")
             .resizable(false)
@@ -194,55 +208,67 @@ impl PreferencesState {
     fn draw_sidebar(&mut self, ui: &mut egui::Ui, dbus_client: &Option<Arc<DaemonClient>>) {
         ui.vertical(|ui| {
             ui.add_space(8.0);
-            ui.label(RichText::new("ПРОФИЛИ").strong().color(Color32::from_rgb(110, 110, 120)));
+            ui.label(
+                RichText::new("ПРОФИЛИ")
+                    .strong()
+                    .color(Color32::from_rgb(110, 110, 120)),
+            );
             ui.add_space(4.0);
 
             // Список профилей
-            egui::ScrollArea::vertical().max_height(280.0).show(ui, |ui| {
-                for id in &self.profiles {
-                    let is_selected = Some(id.clone()) == self.selected_id;
-                    let is_active = Some(id.clone()) == self.active_id;
-                    
-                    let text = if is_active {
-                        format!("[Акт] {}", id)
-                    } else {
-                        id.clone()
-                    };
+            egui::ScrollArea::vertical()
+                .max_height(280.0)
+                .show(ui, |ui| {
+                    for id in &self.profiles {
+                        let is_selected = Some(id.clone()) == self.selected_id;
+                        let is_active = Some(id.clone()) == self.active_id;
 
-                    let btn_color = if is_selected {
-                        Color32::from_rgb(99, 102, 241) // Indigo
-                    } else {
-                        Color32::from_rgb(45, 45, 50)
-                    };
+                        let text = if is_active {
+                            format!("[Акт] {}", id)
+                        } else {
+                            id.clone()
+                        };
 
-                    let btn = ui.add_sized(
-                        [ui.available_width() - 4.0, 32.0],
-                        egui::Button::new(RichText::new(text).color(Color32::WHITE)).fill(btn_color)
-                    );
+                        let btn_color = if is_selected {
+                            Color32::from_rgb(99, 102, 241) // Indigo
+                        } else {
+                            Color32::from_rgb(45, 45, 50)
+                        };
 
-                    if btn.clicked() {
-                        self.load_profile_details(id.clone(), dbus_client);
+                        let btn = ui.add_sized(
+                            [ui.available_width() - 4.0, 32.0],
+                            egui::Button::new(RichText::new(text).color(Color32::WHITE))
+                                .fill(btn_color),
+                        );
+
+                        if btn.clicked() {
+                            self.load_profile_details(id.clone(), dbus_client);
+                        }
+                        ui.add_space(2.0);
                     }
-                    ui.add_space(2.0);
-                }
-            });
+                });
 
             ui.add_space(10.0);
-            
+
             // Кнопка создания нового профиля
             let create_btn = ui.add_sized(
                 [ui.available_width() - 4.0, 36.0],
-                egui::Button::new(RichText::new("+ Новый профиль").strong().color(Color32::WHITE))
-                    .fill(Color32::from_rgb(16, 185, 129)) // Green
+                egui::Button::new(
+                    RichText::new("+ Новый профиль")
+                        .strong()
+                        .color(Color32::WHITE),
+                )
+                .fill(Color32::from_rgb(16, 185, 129)), // Green
             );
-            
+
             if create_btn.clicked() {
                 let random_id = format!(
                     "profile_{}",
                     std::time::SystemTime::now()
                         .duration_since(std::time::UNIX_EPOCH)
                         .expect("System time is set before Unix Epoch")
-                        .as_millis() % 10000
+                        .as_millis()
+                        % 10000
                 );
                 let new_profile = Profile {
                     id: random_id,
@@ -260,7 +286,11 @@ impl PreferencesState {
             ui.add_space(10.0);
 
             // Панель управления RVMS
-            ui.label(RichText::new("ВИРТУАЛЬНЫЙ ЭКРАН").strong().color(Color32::from_rgb(110, 110, 120)));
+            ui.label(
+                RichText::new("ВИРТУАЛЬНЫЙ ЭКРАН")
+                    .strong()
+                    .color(Color32::from_rgb(110, 110, 120)),
+            );
             ui.add_space(4.0);
 
             let status_text = if self.is_rvms_active {
@@ -282,7 +312,11 @@ impl PreferencesState {
 
             ui.add_space(6.0);
 
-            let rvms_action_text = if self.is_rvms_active { "Остановить RVMS" } else { "Запустить RVMS" };
+            let rvms_action_text = if self.is_rvms_active {
+                "Остановить RVMS"
+            } else {
+                "Запустить RVMS"
+            };
             let rvms_action_color = if self.is_rvms_active {
                 Color32::from_rgb(220, 38, 38)
             } else {
@@ -291,7 +325,12 @@ impl PreferencesState {
 
             let rvms_btn = ui.add_sized(
                 [ui.available_width() - 4.0, 34.0],
-                egui::Button::new(RichText::new(rvms_action_text).strong().color(Color32::WHITE)).fill(rvms_action_color)
+                egui::Button::new(
+                    RichText::new(rvms_action_text)
+                        .strong()
+                        .color(Color32::WHITE),
+                )
+                .fill(rvms_action_color),
             );
 
             if rvms_btn.clicked() {
@@ -302,13 +341,27 @@ impl PreferencesState {
                     tokio::spawn(async move {
                         if is_active {
                             match client.stop_rvms().await {
-                                Ok(_) => { let _ = tx.send(GuiEvent::RvmsStopped); }
-                                Err(e) => { let _ = tx.send(GuiEvent::Error(format!("Ошибка остановки RVMS: {}", e))); }
+                                Ok(_) => {
+                                    let _ = tx.send(GuiEvent::RvmsStopped);
+                                }
+                                Err(e) => {
+                                    let _ = tx.send(GuiEvent::Error(format!(
+                                        "Ошибка остановки RVMS: {}",
+                                        e
+                                    )));
+                                }
                             }
                         } else {
                             match client.start_rvms().await {
-                                Ok(node_id) => { let _ = tx.send(GuiEvent::RvmsStarted(node_id)); }
-                                Err(e) => { let _ = tx.send(GuiEvent::Error(format!("Ошибка запуска RVMS: {}", e))); }
+                                Ok(node_id) => {
+                                    let _ = tx.send(GuiEvent::RvmsStarted(node_id));
+                                }
+                                Err(e) => {
+                                    let _ = tx.send(GuiEvent::Error(format!(
+                                        "Ошибка запуска RVMS: {}",
+                                        e
+                                    )));
+                                }
                             }
                         }
                     });
@@ -322,7 +375,11 @@ impl PreferencesState {
         // Вывод системных сообщений / уведомлений
         let mut clear_message = false;
         if let Some((msg, is_error)) = &self.status_message {
-            let color = if *is_error { Color32::from_rgb(239, 68, 68) } else { Color32::from_rgb(16, 185, 129) };
+            let color = if *is_error {
+                Color32::from_rgb(239, 68, 68)
+            } else {
+                Color32::from_rgb(16, 185, 129)
+            };
             let msg_clone = msg.clone();
             ui.group(|ui| {
                 ui.horizontal(|ui| {
@@ -373,7 +430,7 @@ impl PreferencesState {
                 egui::TextEdit::multiline(&mut profile.system_prompt)
                     .hint_text("Ты senior-ментор...")
                     .desired_rows(4)
-                    .desired_width(ui.available_width() - 10.0)
+                    .desired_width(ui.available_width() - 10.0),
             );
 
             ui.add_space(10.0);
@@ -382,23 +439,27 @@ impl PreferencesState {
             ui.label(RichText::new("Резюме кандидата (CV):").strong());
             ui.horizontal(|ui| {
                 ui.text_edit_singleline(&mut profile.cv_path);
-                
+
                 // Простая валидация пути
-                let path_exists = std::path::Path::new(&profile.cv_path).exists() && !profile.cv_path.is_empty();
+                let path_exists =
+                    std::path::Path::new(&profile.cv_path).exists() && !profile.cv_path.is_empty();
                 if path_exists {
                     ui.label(RichText::new("[OK]").color(Color32::GREEN));
                 } else if !profile.cv_path.is_empty() {
                     ui.label(RichText::new("[ERR]").color(Color32::RED));
                 }
             });
-            
+
             if !profile.cv_text.is_empty() {
-                ui.collapsing("Показать спарсенный текст резюме", |ui| {
-                    let preview: String = profile.cv_text.chars().take(200).collect();
-                    ui.group(|ui| {
-                        ui.label(format!("{}...", preview));
-                    });
-                });
+                ui.collapsing(
+                    "Показать спарсенный текст резюме",
+                    |ui| {
+                        let preview: String = profile.cv_text.chars().take(200).collect();
+                        ui.group(|ui| {
+                            ui.label(format!("{}...", preview));
+                        });
+                    },
+                );
             }
 
             ui.add_space(10.0);
@@ -407,8 +468,9 @@ impl PreferencesState {
             ui.label(RichText::new("Описание вакансии (Vacancy):").strong());
             ui.horizontal(|ui| {
                 ui.text_edit_singleline(&mut profile.vacancy_path);
-                
-                let path_exists = std::path::Path::new(&profile.vacancy_path).exists() && !profile.vacancy_path.is_empty();
+
+                let path_exists = std::path::Path::new(&profile.vacancy_path).exists()
+                    && !profile.vacancy_path.is_empty();
                 if path_exists {
                     ui.label(RichText::new("[OK]").color(Color32::GREEN));
                 } else if !profile.vacancy_path.is_empty() {
@@ -417,12 +479,15 @@ impl PreferencesState {
             });
 
             if !profile.vacancy_text.is_empty() {
-                ui.collapsing("Показать спарсенный текст вакансии", |ui| {
-                    let preview: String = profile.vacancy_text.chars().take(200).collect();
-                    ui.group(|ui| {
-                        ui.label(format!("{}...", preview));
-                    });
-                });
+                ui.collapsing(
+                    "Показать спарсенный текст вакансии",
+                    |ui| {
+                        let preview: String = profile.vacancy_text.chars().take(200).collect();
+                        ui.group(|ui| {
+                            ui.label(format!("{}...", preview));
+                        });
+                    },
+                );
             }
 
             ui.add_space(10.0);
@@ -433,7 +498,7 @@ impl PreferencesState {
                 egui::TextEdit::multiline(&mut profile.facts)
                     .hint_text("Знает Rust 3 года...")
                     .desired_rows(3)
-                    .desired_width(ui.available_width() - 10.0)
+                    .desired_width(ui.available_width() - 10.0),
             );
 
             ui.add_space(10.0);
@@ -441,15 +506,27 @@ impl PreferencesState {
             // Настройки LLM
             ui.group(|ui| {
                 ui.label(RichText::new("Настройки LLM (Генератор ответов)").strong());
-                
+
                 ui.horizontal(|ui| {
                     ui.label("Провайдер:");
                     egui::ComboBox::from_id_salt("llm_provider")
                         .selected_text(&profile.llm.provider)
                         .show_ui(ui, |ui| {
-                            ui.selectable_value(&mut profile.llm.provider, "openai_compat".to_string(), "OpenAI Compatible");
-                            ui.selectable_value(&mut profile.llm.provider, "openai".to_string(), "OpenAI (Official)");
-                            ui.selectable_value(&mut profile.llm.provider, "anthropic".to_string(), "Anthropic (Claude)");
+                            ui.selectable_value(
+                                &mut profile.llm.provider,
+                                "openai_compat".to_string(),
+                                "OpenAI Compatible",
+                            );
+                            ui.selectable_value(
+                                &mut profile.llm.provider,
+                                "openai".to_string(),
+                                "OpenAI (Official)",
+                            );
+                            ui.selectable_value(
+                                &mut profile.llm.provider,
+                                "anthropic".to_string(),
+                                "Anthropic (Claude)",
+                            );
                         });
                 });
 
@@ -467,7 +544,14 @@ impl PreferencesState {
                 ui.horizontal(|ui| {
                     ui.label("API ключ LLM:");
                     ui.add(egui::TextEdit::singleline(llm_key_input).password(!*show_llm_key));
-                    if ui.button(if *show_llm_key { "Скрыть" } else { "Показать" }).clicked() {
+                    if ui
+                        .button(if *show_llm_key {
+                            "Скрыть"
+                        } else {
+                            "Показать"
+                        })
+                        .clicked()
+                    {
                         *show_llm_key = !*show_llm_key;
                     }
                 });
@@ -489,8 +573,16 @@ impl PreferencesState {
                     egui::ComboBox::from_id_salt("asr_provider")
                         .selected_text(&profile.asr.provider)
                         .show_ui(ui, |ui| {
-                            ui.selectable_value(&mut profile.asr.provider, "openai_compat".to_string(), "OpenAI Compatible");
-                            ui.selectable_value(&mut profile.asr.provider, "openai".to_string(), "OpenAI Whisper");
+                            ui.selectable_value(
+                                &mut profile.asr.provider,
+                                "openai_compat".to_string(),
+                                "OpenAI Compatible",
+                            );
+                            ui.selectable_value(
+                                &mut profile.asr.provider,
+                                "openai".to_string(),
+                                "OpenAI Whisper",
+                            );
                         });
                 });
 
@@ -508,7 +600,14 @@ impl PreferencesState {
                 ui.horizontal(|ui| {
                     ui.label("API ключ ASR:");
                     ui.add(egui::TextEdit::singleline(asr_key_input).password(!*show_asr_key));
-                    if ui.button(if *show_asr_key { "Скрыть" } else { "Показать" }).clicked() {
+                    if ui
+                        .button(if *show_asr_key {
+                            "Скрыть"
+                        } else {
+                            "Показать"
+                        })
+                        .clicked()
+                    {
                         *show_asr_key = !*show_asr_key;
                     }
                 });
@@ -521,7 +620,8 @@ impl PreferencesState {
                 // Кнопка Сохранить
                 let save_btn = ui.add_sized(
                     [100.0, 36.0],
-                    egui::Button::new(RichText::new("Сохранить").strong().color(Color32::WHITE)).fill(Color32::from_rgb(79, 70, 229))
+                    egui::Button::new(RichText::new("Сохранить").strong().color(Color32::WHITE))
+                        .fill(Color32::from_rgb(79, 70, 229)),
                 );
 
                 if save_btn.clicked() {
@@ -530,7 +630,7 @@ impl PreferencesState {
                         llm_key_input.clone(),
                         asr_key_input.clone(),
                         dbus_client,
-                        event_tx.clone()
+                        event_tx.clone(),
                     );
                 }
 
@@ -541,9 +641,16 @@ impl PreferencesState {
                 let active_btn = ui.add_enabled(
                     !is_active,
                     egui::Button::new(
-                        RichText::new(if is_active { "[Активен]" } else { "Использовать" }).strong().color(Color32::WHITE)
-                    ).fill(Color32::from_rgb(16, 185, 129))
-                    .min_size(Vec2::new(130.0, 36.0))
+                        RichText::new(if is_active {
+                            "[Активен]"
+                        } else {
+                            "Использовать"
+                        })
+                        .strong()
+                        .color(Color32::WHITE),
+                    )
+                    .fill(Color32::from_rgb(16, 185, 129))
+                    .min_size(Vec2::new(130.0, 36.0)),
                 );
 
                 if active_btn.clicked() {
@@ -560,7 +667,10 @@ impl PreferencesState {
                                     }
                                 }
                                 Err(e) => {
-                                    let _ = tx.send(GuiEvent::Error(format!("Ошибка активации профиля: {}", e)));
+                                    let _ = tx.send(GuiEvent::Error(format!(
+                                        "Ошибка активации профиля: {}",
+                                        e
+                                    )));
                                 }
                             }
                         });
@@ -571,7 +681,8 @@ impl PreferencesState {
                     // Кнопка Удалить
                     let delete_btn = ui.add_sized(
                         [100.0, 36.0],
-                        egui::Button::new(RichText::new("Удалить").strong().color(Color32::WHITE)).fill(Color32::from_rgb(220, 38, 38))
+                        egui::Button::new(RichText::new("Удалить").strong().color(Color32::WHITE))
+                            .fill(Color32::from_rgb(220, 38, 38)),
                     );
 
                     if delete_btn.clicked() {
@@ -585,13 +696,16 @@ impl PreferencesState {
                                 let asr_key_name = format!("asr_api_key_{}", profile_id);
                                 let _ = KeyringStore::delete_password(&llm_key_name).await;
                                 let _ = KeyringStore::delete_password(&asr_key_name).await;
-                                
+
                                 match client.delete_profile(&profile_id).await {
                                     Ok(_) => {
                                         let _ = tx.send(GuiEvent::ProfileDeleted(profile_id));
                                     }
                                     Err(e) => {
-                                        let _ = tx.send(GuiEvent::Error(format!("Ошибка удаления профиля: {}", e)));
+                                        let _ = tx.send(GuiEvent::Error(format!(
+                                            "Ошибка удаления профиля: {}",
+                                            e
+                                        )));
                                     }
                                 }
                             });
@@ -612,19 +726,19 @@ impl PreferencesState {
         event_tx: UnboundedSender<GuiEvent>,
     ) {
         let mut profile_to_save = profile.clone();
-        
+
         // Очищаем секретные ключи в объекте профиля перед сохранением в plain-text YAML
         profile_to_save.llm.api_key = "".to_string();
         profile_to_save.asr.api_key = "".to_string();
 
         if let Some(client) = dbus_client {
             let client = client.clone();
-            
+
             tokio::spawn(async move {
                 // 1. Сохраняем ключи в безопасном хранилище Keyring
                 let llm_key_name = format!("llm_api_key_{}", profile_to_save.id);
                 let asr_key_name = format!("asr_api_key_{}", profile_to_save.id);
-                
+
                 if !llm_key.is_empty() {
                     let _ = KeyringStore::set_password(&llm_key_name, &llm_key).await;
                 } else {
@@ -643,7 +757,8 @@ impl PreferencesState {
                         let _ = event_tx.send(GuiEvent::ProfileSaved(saved));
                     }
                     Err(e) => {
-                        let _ = event_tx.send(GuiEvent::Error(format!("Ошибка сохранения профиля: {}", e)));
+                        let _ = event_tx
+                            .send(GuiEvent::Error(format!("Ошибка сохранения профиля: {}", e)));
                     }
                 }
             });

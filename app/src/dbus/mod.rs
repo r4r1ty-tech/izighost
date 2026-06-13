@@ -1,6 +1,6 @@
-use zbus::{Connection, proxy};
 use izighost_common::Profile;
-use tokio::sync::mpsc::{unbounded_channel, UnboundedSender, UnboundedReceiver};
+use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
+use zbus::{proxy, Connection};
 
 #[derive(Clone, Debug)]
 pub enum DaemonSignal {

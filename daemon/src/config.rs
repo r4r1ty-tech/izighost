@@ -1,7 +1,7 @@
-use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
-use std::fs;
 use anyhow::{Context, Result};
+use serde::{Deserialize, Serialize};
+use std::fs;
+use std::path::PathBuf;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct GeneralConfig {
@@ -73,19 +73,10 @@ impl Default for VadConfig {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct PipewireConfig {
     pub target_sink: Option<String>,
     pub target_source: Option<String>,
-}
-
-impl Default for PipewireConfig {
-    fn default() -> Self {
-        Self {
-            target_sink: None,
-            target_source: None,
-        }
-    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -151,9 +142,9 @@ pub struct DaemonConfig {
 }
 
 pub fn resolve_path(path: &str) -> PathBuf {
-    if path.starts_with("~/") {
+    if let Some(stripped) = path.strip_prefix("~/") {
         if let Ok(home) = std::env::var("HOME") {
-            return PathBuf::from(home).join(&path[2..]);
+            return PathBuf::from(home).join(stripped);
         }
     }
     PathBuf::from(path)
@@ -163,18 +154,20 @@ impl DaemonConfig {
     pub fn load() -> Result<Self> {
         let config_dir = resolve_path("~/.config/izighost");
         let config_file = config_dir.join("daemon.yaml");
-        
+
         if !config_file.exists() {
             // Create config dir and write default config
             fs::create_dir_all(&config_dir).context("Failed to create config directory")?;
             let default_config = DaemonConfig::default();
-            let yaml = serde_yaml::to_string(&default_config).context("Failed to serialize default config")?;
+            let yaml = serde_yaml::to_string(&default_config)
+                .context("Failed to serialize default config")?;
             fs::write(&config_file, yaml).context("Failed to write default config file")?;
             return Ok(default_config);
         }
-        
+
         let content = fs::read_to_string(&config_file).context("Failed to read config file")?;
-        let config: DaemonConfig = serde_yaml::from_str(&content).context("Failed to parse config file")?;
+        let config: DaemonConfig =
+            serde_yaml::from_str(&content).context("Failed to parse config file")?;
         Ok(config)
     }
 }

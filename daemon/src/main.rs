@@ -1,6 +1,6 @@
+use izighost_daemon::context_store::ContextStore;
 use izighost_daemon::dbus_server::DaemonInterface;
 use izighost_daemon::profile::ProfileManager;
-use izighost_daemon::context_store::ContextStore;
 use izighost_daemon::rvms::RvmsManager;
 
 #[tokio::main]

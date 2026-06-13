@@ -1,10 +1,10 @@
+use futures::StreamExt;
 use std::collections::HashMap;
 use std::process::{Child, Command};
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use zbus::{Connection, proxy};
-use zvariant::{Value, OwnedObjectPath};
-use futures::StreamExt;
+use zbus::{proxy, Connection};
+use zvariant::{OwnedObjectPath, Value};
 
 // --- ScreenCast D-Bus Interface ---
 
@@ -14,7 +14,10 @@ use futures::StreamExt;
     default_path = "/org/gnome/Mutter/ScreenCast"
 )]
 pub trait ScreenCast {
-    async fn create_session(&self, properties: HashMap<&str, Value<'_>>) -> zbus::Result<OwnedObjectPath>;
+    async fn create_session(
+        &self,
+        properties: HashMap<&str, Value<'_>>,
+    ) -> zbus::Result<OwnedObjectPath>;
 }
 
 #[proxy(
@@ -24,7 +27,10 @@ pub trait ScreenCast {
 pub trait ScreenCastSession {
     async fn start(&self) -> zbus::Result<()>;
     async fn stop(&self) -> zbus::Result<()>;
-    async fn record_virtual(&self, properties: HashMap<&str, Value<'_>>) -> zbus::Result<OwnedObjectPath>;
+    async fn record_virtual(
+        &self,
+        properties: HashMap<&str, Value<'_>>,
+    ) -> zbus::Result<OwnedObjectPath>;
 }
 
 #[proxy(
@@ -75,6 +81,12 @@ pub struct RvmsManager {
     state: Arc<Mutex<RvmsState>>,
 }
 
+impl Default for RvmsManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl RvmsManager {
     pub fn new() -> Self {
         Self {
@@ -103,13 +115,17 @@ impl RvmsManager {
         }
 
         // 1. Подключение к D-Bus
-        let conn = Connection::session().await
+        let conn = Connection::session()
+            .await
             .map_err(|e| format!("Не удалось подключиться к сессионной шине D-Bus: {}", e))?;
 
         // 2. Создание RemoteDesktop сессии для эмуляции ввода (EIS)
-        let rd_proxy = RemoteDesktopProxy::new(&conn).await
+        let rd_proxy = RemoteDesktopProxy::new(&conn)
+            .await
             .map_err(|e| format!("Не удалось создать RemoteDesktop прокси: {}", e))?;
-        let rd_session_path = rd_proxy.create_session().await
+        let rd_session_path = rd_proxy
+            .create_session()
+            .await
             .map_err(|e| format!("Не удалось создать RemoteDesktop сессию: {}", e))?;
         let rd_session_proxy = RemoteDesktopSessionProxy::builder(&conn)
             .path(&rd_session_path)
@@ -119,13 +135,16 @@ impl RvmsManager {
             .map_err(|e| format!("Не удалось построить прокси RemoteDesktopSession: {}", e))?;
 
         // 3. Создание ScreenCast прокси
-        let screencast_proxy = ScreenCastProxy::new(&conn).await
+        let screencast_proxy = ScreenCastProxy::new(&conn)
+            .await
             .map_err(|e| format!("Не удалось создать ScreenCast прокси: {}", e))?;
 
         // 4. Создание ScreenCast сессии
         let mut session_props = HashMap::new();
         session_props.insert("cursor-mode", Value::from(1u32)); // отображать курсор
-        let session_path = screencast_proxy.create_session(session_props).await
+        let session_path = screencast_proxy
+            .create_session(session_props)
+            .await
             .map_err(|e| format!("Не удалось создать ScreenCast сессию: {}", e))?;
 
         let session_proxy = ScreenCastSessionProxy::builder(&conn)
@@ -142,7 +161,9 @@ impl RvmsManager {
         record_props.insert("scale", Value::from(1.0f64));
         record_props.insert("cursor-mode", Value::from(1u32));
 
-        let stream_path = session_proxy.record_virtual(record_props).await
+        let stream_path = session_proxy
+            .record_virtual(record_props)
+            .await
             .map_err(|e| format!("Метод RecordVirtual завершился с ошибкой: {}", e))?;
 
         let stream_proxy = ScreenCastStreamProxy::builder(&conn)
@@ -153,13 +174,24 @@ impl RvmsManager {
             .map_err(|e| format!("Не удалось построить прокси ScreenCastStream: {}", e))?;
 
         // 6. Подписка на сигнал добавления PipeWire стрима
-        let mut signal_stream = stream_proxy.receive_pipe_wire_stream_added().await
-            .map_err(|e| format!("Не удалось подписаться на сигнал PipeWireStreamAdded: {}", e))?;
+        let mut signal_stream = stream_proxy
+            .receive_pipe_wire_stream_added()
+            .await
+            .map_err(|e| {
+                format!(
+                    "Не удалось подписаться на сигнал PipeWireStreamAdded: {}",
+                    e
+                )
+            })?;
 
         // 7. Запуск сессий ввода и трансляции
-        rd_session_proxy.start().await
+        rd_session_proxy
+            .start()
+            .await
             .map_err(|e| format!("Не удалось запустить RemoteDesktop сессию: {}", e))?;
-        session_proxy.start().await
+        session_proxy
+            .start()
+            .await
             .map_err(|e| format!("Не удалось запустить ScreenCast сессию: {}", e))?;
 
         // 8. Ожидание сигнала с PipeWire Node ID
@@ -218,8 +250,12 @@ impl RvmsManager {
         }
 
         // Вызываем метод Stop на объекте RemoteDesktop сессии
-        if let (Some(ref conn), Some(ref rd_session_path)) = (&state.connection, &state.rd_session_path) {
-            if let Ok(rd_session_proxy) = RemoteDesktopSessionProxy::builder(conn).path(rd_session_path) {
+        if let (Some(ref conn), Some(ref rd_session_path)) =
+            (&state.connection, &state.rd_session_path)
+        {
+            if let Ok(rd_session_proxy) =
+                RemoteDesktopSessionProxy::builder(conn).path(rd_session_path)
+            {
                 if let Ok(proxy) = rd_session_proxy.build().await {
                     let _ = proxy.stop().await;
                 }

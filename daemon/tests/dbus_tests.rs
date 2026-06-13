@@ -1,9 +1,9 @@
-use zbus::{connection, proxy};
 use izighost_common::Profile;
+use izighost_daemon::context_store::ContextStore;
 use izighost_daemon::dbus_server::DaemonInterface;
 use izighost_daemon::profile::ProfileManager;
-use izighost_daemon::context_store::ContextStore;
 use izighost_daemon::rvms::RvmsManager;
+use zbus::{connection, proxy};
 
 #[proxy(
     interface = "com.izighost.Daemon",
@@ -52,7 +52,7 @@ async fn test_dbus_stubs() {
     let client_connection = connection::Connection::session()
         .await
         .expect("Не удалось получить клиентское подключение");
-    
+
     // Получаем уникальное имя этого подключения в качестве адресата
     let unique_name = connection.unique_name().expect("Нет уникального имени");
 
@@ -76,7 +76,10 @@ async fn test_dbus_stubs() {
     assert!(profiles.is_empty() || !profiles.is_empty()); // Просто проверяем успешность вызова
 
     // Получаем пустой активный профиль
-    let active = proxy.get_active_profile().await.expect("get_active_profile failed");
+    let active = proxy
+        .get_active_profile()
+        .await
+        .expect("get_active_profile failed");
     assert_eq!(active.id, "");
 
     // Проверяем, что trigger_ocr возвращает ошибку, так как RVMS сейчас остановлен

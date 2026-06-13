@@ -1,7 +1,7 @@
-use std::sync::Arc;
+use crate::dbus::DaemonClient;
 use ashpd::desktop::global_shortcuts::{GlobalShortcuts, NewShortcut};
 use futures::StreamExt;
-use crate::dbus::DaemonClient;
+use std::sync::Arc;
 
 /// Инициализация глобального хоткея Super+Shift+S через XDG Desktop Portal.
 /// При активации хоткея отправляет D-Bus команду TriggerOcr на сторону демона.
@@ -27,7 +27,9 @@ pub async fn init_hotkeys(dbus_client: Option<Arc<DaemonClient>>) -> Result<(), 
     tracing::info!("Регистрация глобального хоткея в XDG Desktop Portal...");
 
     // Биндим хоткеи
-    let request = global_shortcuts.bind_shortcuts(&session, &[shortcut], None).await?;
+    let request = global_shortcuts
+        .bind_shortcuts(&session, &[shortcut], None)
+        .await?;
     let _response = request.response()?;
 
     tracing::info!("Глобальный хоткей успешно зарегистрирован. Запуск слушателя сигналов...");

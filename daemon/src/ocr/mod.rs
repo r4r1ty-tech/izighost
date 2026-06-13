@@ -7,7 +7,11 @@ pub fn capture_screenshot(node_id: u32) -> Result<PathBuf, anyhow::Error> {
     let timestamp = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0);
     let temp_path = std::env::temp_dir().join(format!("izighost_ocr_raw_{}.png", timestamp));
 
-    tracing::info!("Запуск захвата кадра с PipeWire ID {} в {:?}", node_id, temp_path);
+    tracing::info!(
+        "Запуск захвата кадра с PipeWire ID {} в {:?}",
+        node_id,
+        temp_path
+    );
 
     let status = Command::new("gst-launch-1.0")
         .arg("pipewiresrc")
@@ -33,9 +37,14 @@ pub fn capture_screenshot(node_id: u32) -> Result<PathBuf, anyhow::Error> {
 /// конвертация в Grayscale и бинаризация (порог яркости).
 pub fn preprocess_image(input_path: &Path) -> Result<PathBuf, anyhow::Error> {
     let timestamp = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0);
-    let output_path = std::env::temp_dir().join(format!("izighost_ocr_preprocessed_{}.png", timestamp));
+    let output_path =
+        std::env::temp_dir().join(format!("izighost_ocr_preprocessed_{}.png", timestamp));
 
-    tracing::info!("Предобработка скриншота из {:?} в {:?}", input_path, output_path);
+    tracing::info!(
+        "Предобработка скриншота из {:?} в {:?}",
+        input_path,
+        output_path
+    );
 
     // Открываем исходное изображение
     let img = image::open(input_path)?;
@@ -72,7 +81,8 @@ pub fn run_ocr(image_path: &Path) -> Result<String, anyhow::Error> {
     lt.set_image(image_path)
         .map_err(|e| anyhow::anyhow!("Не удалось загрузить изображение в Tesseract: {:?}", e))?;
 
-    let text = lt.get_utf8_text()
+    let text = lt
+        .get_utf8_text()
         .map_err(|e| anyhow::anyhow!("Ошибка извлечения текста Tesseract: {:?}", e))?;
 
     Ok(text)
@@ -127,7 +137,8 @@ mod tests {
         }
 
         let temp_raw = std::env::temp_dir().join("test_ocr_mock_raw.png");
-        img.save(&temp_raw).expect("Не удалось сохранить тестовую картинку");
+        img.save(&temp_raw)
+            .expect("Не удалось сохранить тестовую картинку");
 
         // Тестируем предобработку
         let preprocessed = preprocess_image(&temp_raw);

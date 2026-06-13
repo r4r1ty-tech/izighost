@@ -1,6 +1,6 @@
+use izighost_common::Profile;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use izighost_common::Profile;
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct ChatMessage {
@@ -17,6 +17,12 @@ pub struct ContextStoreInner {
 #[derive(Clone)]
 pub struct ContextStore {
     inner: Arc<RwLock<ContextStoreInner>>,
+}
+
+impl Default for ContextStore {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl ContextStore {

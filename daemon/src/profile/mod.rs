@@ -1,12 +1,18 @@
 pub mod parser;
 
+use crate::config::resolve_path;
+use izighost_common::{IziError, Profile};
 use std::fs;
 use std::path::PathBuf;
-use izighost_common::{Profile, IziError};
-use crate::config::resolve_path;
 
 pub struct ProfileManager {
     profiles_dir: PathBuf,
+}
+
+impl Default for ProfileManager {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl ProfileManager {
@@ -19,18 +25,20 @@ impl ProfileManager {
         if !self.profiles_dir.exists() {
             return Ok(Vec::new());
         }
-        
+
         let mut ids = Vec::new();
         let entries = fs::read_dir(&self.profiles_dir)
             .map_err(|e| IziError::Profile(format!("Failed to read profiles directory: {}", e)))?;
-            
-        for entry in entries {
-            if let Ok(entry) = entry {
-                let path = entry.path();
-                if path.is_file() && path.extension().map_or(false, |ext| ext == "yaml" || ext == "yml") {
-                    if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
-                        ids.push(stem.to_string());
-                    }
+
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_file()
+                && path
+                    .extension()
+                    .is_some_and(|ext| ext == "yaml" || ext == "yml")
+            {
+                if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+                    ids.push(stem.to_string());
                 }
             }
         }
@@ -43,22 +51,23 @@ impl ProfileManager {
         if !file_path.exists() {
             return Err(IziError::Profile(format!("Profile '{}' not found", id)));
         }
-        
+
         let content = fs::read_to_string(&file_path)
             .map_err(|e| IziError::Profile(format!("Failed to read profile file: {}", e)))?;
-            
+
         let profile: Profile = serde_yaml::from_str(&content)
             .map_err(|e| IziError::Profile(format!("Failed to parse profile YAML: {}", e)))?;
-            
+
         Ok(profile)
     }
 
     pub async fn save_profile(&self, mut profile: Profile) -> Result<Profile, IziError> {
         if !self.profiles_dir.exists() {
-            fs::create_dir_all(&self.profiles_dir)
-                .map_err(|e| IziError::Profile(format!("Failed to create profiles directory: {}", e)))?;
+            fs::create_dir_all(&self.profiles_dir).map_err(|e| {
+                IziError::Profile(format!("Failed to create profiles directory: {}", e))
+            })?;
         }
-        
+
         // Handle parsing CV if path is set and text is empty (or path changed)
         if !profile.cv_path.is_empty() {
             let parse_needed = match self.get_profile(&profile.id) {
@@ -80,7 +89,9 @@ impl ProfileManager {
         // Handle parsing vacancy if path is set and text is empty
         if !profile.vacancy_path.is_empty() {
             let parse_needed = match self.get_profile(&profile.id) {
-                Ok(existing) => existing.vacancy_path != profile.vacancy_path || profile.vacancy_text.is_empty(),
+                Ok(existing) => {
+                    existing.vacancy_path != profile.vacancy_path || profile.vacancy_text.is_empty()
+                }
                 Err(_) => true,
             };
             if parse_needed {
@@ -96,12 +107,13 @@ impl ProfileManager {
         }
 
         let file_path = self.profiles_dir.join(format!("{}.yaml", profile.id));
-        let content = serde_yaml::to_string(&profile)
-            .map_err(|e| IziError::Profile(format!("Failed to serialize profile to YAML: {}", e)))?;
-            
+        let content = serde_yaml::to_string(&profile).map_err(|e| {
+            IziError::Profile(format!("Failed to serialize profile to YAML: {}", e))
+        })?;
+
         fs::write(&file_path, content)
             .map_err(|e| IziError::Profile(format!("Failed to write profile file: {}", e)))?;
-            
+
         Ok(profile)
     }
 

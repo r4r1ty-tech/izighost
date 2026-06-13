@@ -1,2 +1,2 @@
-pub mod preferences;
 pub mod hud;
+pub mod preferences;

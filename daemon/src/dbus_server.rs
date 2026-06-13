@@ -1,8 +1,8 @@
-use zbus::{interface, object_server::SignalEmitter};
-use izighost_common::Profile;
-use crate::profile::ProfileManager;
 use crate::context_store::ContextStore;
+use crate::profile::ProfileManager;
 use crate::rvms::RvmsManager;
+use izighost_common::Profile;
+use zbus::{interface, object_server::SignalEmitter};
 
 pub struct DaemonInterface {
     profile_manager: ProfileManager,
@@ -30,14 +30,14 @@ impl DaemonInterface {
         self.rvms_manager
             .start()
             .await
-            .map_err(|e| zbus::fdo::Error::Failed(e))
+            .map_err(zbus::fdo::Error::Failed)
     }
 
     async fn stop_rvms(&self) -> zbus::fdo::Result<()> {
         self.rvms_manager
             .stop()
             .await
-            .map_err(|e| zbus::fdo::Error::Failed(e))
+            .map_err(zbus::fdo::Error::Failed)
     }
 
     async fn send_chat_message(
@@ -46,11 +46,13 @@ impl DaemonInterface {
         #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
     ) -> zbus::fdo::Result<()> {
         // Сохраняем сообщение пользователя в историю
-        self.context_store.add_message("user".to_string(), text.clone()).await;
+        self.context_store
+            .add_message("user".to_string(), text.clone())
+            .await;
 
         // Имитируем стриминг ответа от LLM
         let response_text = format!("Эхо-ответ от демона на ваш вопрос: '{}'", text);
-        
+
         // Отправляем ответ по словам (чанками)
         for word in response_text.split_whitespace() {
             let chunk = format!("{} ", word);
@@ -60,7 +62,9 @@ impl DaemonInterface {
             tokio::time::sleep(std::time::Duration::from_millis(100)).await;
         }
 
-        self.context_store.add_message("assistant".to_string(), response_text).await;
+        self.context_store
+            .add_message("assistant".to_string(), response_text)
+            .await;
 
         Self::chat_completed(&emitter)
             .await
@@ -76,7 +80,8 @@ impl DaemonInterface {
         let node_id = match self.rvms_manager.get_pipewire_node_id().await {
             Some(id) => id,
             None => {
-                let err_msg = "Виртуальный экран не активен. Сначала запустите RVMS сессию в настройках.";
+                let err_msg =
+                    "Виртуальный экран не активен. Сначала запустите RVMS сессию в настройках.";
                 let _ = Self::error_occurred(&emitter, err_msg).await;
                 return Err(zbus::fdo::Error::Failed(err_msg.to_string()));
             }
@@ -97,7 +102,10 @@ impl DaemonInterface {
                     let err_msg = format!("Ошибка распознавания текста (OCR): {}", e);
                     tracing::error!("{}", err_msg);
                     if let Err(sig_err) = Self::error_occurred(&emitter_clone, &err_msg).await {
-                        tracing::error!("Ошибка отправки D-Bus сигнала error_occurred: {:?}", sig_err);
+                        tracing::error!(
+                            "Ошибка отправки D-Bus сигнала error_occurred: {:?}",
+                            sig_err
+                        );
                     }
                 }
             }
@@ -116,8 +124,10 @@ impl DaemonInterface {
     ) -> zbus::fdo::Result<()> {
         // Имитируем распознавание речи
         let mock_asr = "Это текст, распознанный из вашего голоса (ASR заглушка).";
-        
-        self.context_store.set_last_preview(Some(mock_asr.to_string())).await;
+
+        self.context_store
+            .set_last_preview(Some(mock_asr.to_string()))
+            .await;
 
         Self::asr_completed(&emitter, mock_asr)
             .await
@@ -154,16 +164,21 @@ impl DaemonInterface {
     }
 
     async fn set_active_profile(&self, id: String) -> zbus::fdo::Result<()> {
-        let profile = self.profile_manager
+        let profile = self
+            .profile_manager
             .get_profile(&id)
             .map_err(|e| zbus::fdo::Error::Failed(e.to_string()))?;
-        
+
         self.context_store.set_active_profile(Some(profile)).await;
         Ok(())
     }
 
     async fn get_active_profile(&self) -> zbus::fdo::Result<Profile> {
-        Ok(self.context_store.get_active_profile().await.unwrap_or_default())
+        Ok(self
+            .context_store
+            .get_active_profile()
+            .await
+            .unwrap_or_default())
     }
 
     // --- Signals ---

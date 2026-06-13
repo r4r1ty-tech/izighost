@@ -4,11 +4,11 @@ use std::sync::Arc;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 
 mod dbus;
-mod window;
 mod hotkeys;
+mod window;
 
 use window::hud::HudState;
-use window::preferences::{PreferencesState, GuiEvent};
+use window::preferences::{GuiEvent, PreferencesState};
 
 fn main() -> Result<(), eframe::Error> {
     // Принудительно используем X11/XWayland для стабильного AlwaysOnTop в GNOME Wayland
@@ -54,16 +54,14 @@ fn main() -> Result<(), eframe::Error> {
     eframe::run_native(
         "IziGhost HUD",
         options,
-        Box::new(move |_cc| {
-            Ok(Box::new(IziGhostApp::new(dbus_client, signal_rx)))
-        }),
+        Box::new(move |_cc| Ok(Box::new(IziGhostApp::new(dbus_client, signal_rx)))),
     )
 }
 
 struct IziGhostApp {
     dbus_client: Option<Arc<dbus::DaemonClient>>,
     signal_rx: Option<UnboundedReceiver<dbus::DaemonSignal>>,
-    
+
     // Канал для обработки событий из фоновых задач настроек
     gui_event_tx: UnboundedSender<GuiEvent>,
     gui_event_rx: UnboundedReceiver<GuiEvent>,
@@ -79,7 +77,7 @@ impl IziGhostApp {
         signal_rx: Option<UnboundedReceiver<dbus::DaemonSignal>>,
     ) -> Self {
         let (gui_event_tx, gui_event_rx) = unbounded_channel();
-        
+
         let preferences_state = PreferencesState::new(gui_event_tx.clone());
         preferences_state.init(&dbus_client);
 
@@ -105,7 +103,8 @@ impl IziGhostApp {
     /// Опрос событий GUI из фоновых потоков
     fn handle_gui_events(&mut self) {
         while let Ok(event) = self.gui_event_rx.try_recv() {
-            self.preferences_state.handle_event(event, &self.dbus_client);
+            self.preferences_state
+                .handle_event(event, &self.dbus_client);
         }
     }
 }
@@ -120,7 +119,8 @@ impl eframe::App for IziGhostApp {
         egui::CentralPanel::default()
             .frame(egui::Frame::NONE.fill(Color32::TRANSPARENT))
             .show_inside(ui, |ui| {
-                self.hud_state.draw(ui, &self.dbus_client, &self.preferences_state.active_id);
+                self.hud_state
+                    .draw(ui, &self.dbus_client, &self.preferences_state.active_id);
             });
 
         // 2. Отрисовка дополнительного окна настроек (если флаг активен)
@@ -128,11 +128,11 @@ impl eframe::App for IziGhostApp {
             // Временно достаем preferences_state для передачи в замыкание
             let mut preferences_state = std::mem::replace(
                 &mut self.preferences_state,
-                PreferencesState::new(self.gui_event_tx.clone())
+                PreferencesState::new(self.gui_event_tx.clone()),
             );
             let dbus_client = self.dbus_client.clone();
             let mut show_preferences = self.hud_state.show_preferences;
-            
+
             ui.ctx().show_viewport_immediate(
                 egui::ViewportId::from_hash_of("preferences_viewport"),
                 egui::ViewportBuilder::default()
@@ -148,9 +148,9 @@ impl eframe::App for IziGhostApp {
                     egui::CentralPanel::default().show(ctx, |ui| {
                         preferences_state.draw(ui, &dbus_client);
                     });
-                }
+                },
             );
-            
+
             // Возвращаем preferences_state обратно в структуру
             self.preferences_state = preferences_state;
             self.hud_state.show_preferences = show_preferences;
