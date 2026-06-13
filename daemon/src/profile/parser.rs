@@ -1,4 +1,3 @@
-use std::path::Path;
 use kreuzberg::{extract_file, ExtractionConfig};
 use crate::config::resolve_path;
 use izighost_common::IziError;
