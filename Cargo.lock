@@ -2360,6 +2360,7 @@ dependencies = [
  "anyhow",
  "chrono",
  "clap",
+ "futures",
  "izighost-common",
  "kreuzberg",
  "leptess",
