@@ -1,6 +1,7 @@
 use izighost_daemon::dbus_server::DaemonInterface;
 use izighost_daemon::profile::ProfileManager;
 use izighost_daemon::context_store::ContextStore;
+use izighost_daemon::rvms::RvmsManager;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -12,9 +13,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Инициализируем менеджер профилей и хранилище контекста
     let profile_manager = ProfileManager::new();
     let context_store = ContextStore::new();
+    let rvms_manager = RvmsManager::new();
 
     // Создаем D-Bus интерфейс
-    let interface = DaemonInterface::new(profile_manager, context_store);
+    let interface = DaemonInterface::new(profile_manager, context_store, rvms_manager);
 
     // Подключаемся к сессионной шине D-Bus и регистрируем сервис
     let _conn = zbus::connection::Builder::session()?

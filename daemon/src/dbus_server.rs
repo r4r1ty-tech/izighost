@@ -2,17 +2,24 @@ use zbus::{interface, object_server::SignalEmitter};
 use izighost_common::Profile;
 use crate::profile::ProfileManager;
 use crate::context_store::ContextStore;
+use crate::rvms::RvmsManager;
 
 pub struct DaemonInterface {
     profile_manager: ProfileManager,
     context_store: ContextStore,
+    rvms_manager: RvmsManager,
 }
 
 impl DaemonInterface {
-    pub fn new(profile_manager: ProfileManager, context_store: ContextStore) -> Self {
+    pub fn new(
+        profile_manager: ProfileManager,
+        context_store: ContextStore,
+        rvms_manager: RvmsManager,
+    ) -> Self {
         Self {
             profile_manager,
             context_store,
+            rvms_manager,
         }
     }
 }
@@ -20,12 +27,17 @@ impl DaemonInterface {
 #[interface(name = "com.izighost.Daemon")]
 impl DaemonInterface {
     async fn start_rvms(&self) -> zbus::fdo::Result<u32> {
-        // Заглушка: возвращает фиктивный PipeWire Node ID
-        Ok(42)
+        self.rvms_manager
+            .start()
+            .await
+            .map_err(|e| zbus::fdo::Error::Failed(e))
     }
 
     async fn stop_rvms(&self) -> zbus::fdo::Result<()> {
-        Ok(())
+        self.rvms_manager
+            .stop()
+            .await
+            .map_err(|e| zbus::fdo::Error::Failed(e))
     }
 
     async fn send_chat_message(
