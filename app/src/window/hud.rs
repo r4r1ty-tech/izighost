@@ -116,7 +116,16 @@ impl HudState {
 
             // Кнопки управления (справа налево)
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                // 1. Настройки (gear)
+                // 1. Выход (close)
+                let close_btn = icon_button(ui, egui::vec2(24.0, 24.0), "close", Color32::TRANSPARENT, false)
+                    .on_hover_text("Закрыть приложение");
+                if close_btn.clicked() {
+                    ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
+                }
+
+                ui.add_space(2.0);
+
+                // 2. Настройки (gear)
                 let settings_btn = icon_button(ui, egui::vec2(24.0, 24.0), "gear", Color32::TRANSPARENT, false)
                     .on_hover_text("Настройки профилей");
                 if settings_btn.clicked() {
@@ -125,7 +134,7 @@ impl HudState {
 
                 ui.add_space(2.0);
 
-                // 2. Закрепить/Открепить (pin)
+                // 3. Закрепить/Открепить (pin)
                 let pin_btn = icon_button(ui, egui::vec2(24.0, 24.0), "pin", Color32::TRANSPARENT, self.is_pinned)
                     .on_hover_text(if self.is_pinned { "Открепить от экрана" } else { "Закрепить поверх всех окон" });
                 if pin_btn.clicked() {
@@ -140,7 +149,7 @@ impl HudState {
 
                 ui.add_space(2.0);
 
-                // 3. Перенести/Двигать (drag)
+                // 4. Перенести/Двигать (drag)
                 let drag_btn = icon_button(ui, egui::vec2(24.0, 24.0), "drag", Color32::TRANSPARENT, false)
                     .on_hover_text("Зажмите ЛКМ для перемещения окна");
                 if drag_btn.is_pointer_button_down_on() {
@@ -407,6 +416,18 @@ fn icon_button(
                     egui::Stroke::new(1.5, stroke_color)
                 );
             }
+        }
+        "close" => {
+            let center = rect.center();
+            let size = rect.width() * 0.22;
+            ui.painter().line_segment(
+                [center - egui::vec2(size, size), center + egui::vec2(size, size)],
+                egui::Stroke::new(1.5, stroke_color)
+            );
+            ui.painter().line_segment(
+                [center - egui::vec2(size, -size), center + egui::vec2(size, -size)],
+                egui::Stroke::new(1.5, stroke_color)
+            );
         }
         _ => {}
     }
