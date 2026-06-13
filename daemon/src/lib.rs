@@ -3,3 +3,4 @@ pub mod context_store;
 pub mod dbus_server;
 pub mod profile;
 pub mod prompt_assembler;
+pub mod rvms;
