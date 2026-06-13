@@ -73,14 +73,35 @@ impl DaemonInterface {
         &self,
         #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
     ) -> zbus::fdo::Result<()> {
-        // Имитируем распознавание текста
-        let mock_ocr = "Это распознанный текст с виртуального Экрана 2 (OCR заглушка).";
-        
-        self.context_store.set_last_preview(Some(mock_ocr.to_string())).await;
+        let node_id = match self.rvms_manager.get_pipewire_node_id().await {
+            Some(id) => id,
+            None => {
+                let err_msg = "Виртуальный экран не активен. Сначала запустите RVMS сессию в настройках.";
+                let _ = Self::error_occurred(&emitter, err_msg).await;
+                return Err(zbus::fdo::Error::Failed(err_msg.to_string()));
+            }
+        };
 
-        Self::ocr_completed(&emitter, mock_ocr)
-            .await
-            .map_err(|e| zbus::fdo::Error::Failed(e.to_string()))?;
+        // Запускаем OCR пайплайн в фоновом Tokio-потоке
+        let emitter_clone = emitter.clone().into_owned();
+        let context_store = self.context_store.clone();
+        tokio::spawn(async move {
+            match crate::ocr::trigger_ocr_pipeline(node_id).await {
+                Ok(text) => {
+                    context_store.set_last_preview(Some(text.clone())).await;
+                    if let Err(e) = Self::ocr_completed(&emitter_clone, &text).await {
+                        tracing::error!("Ошибка отправки D-Bus сигнала ocr_completed: {:?}", e);
+                    }
+                }
+                Err(e) => {
+                    let err_msg = format!("Ошибка распознавания текста (OCR): {}", e);
+                    tracing::error!("{}", err_msg);
+                    if let Err(sig_err) = Self::error_occurred(&emitter_clone, &err_msg).await {
+                        tracing::error!("Ошибка отправки D-Bus сигнала error_occurred: {:?}", sig_err);
+                    }
+                }
+            }
+        });
 
         Ok(())
     }

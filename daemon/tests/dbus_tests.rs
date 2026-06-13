@@ -78,4 +78,8 @@ async fn test_dbus_stubs() {
     // Получаем пустой активный профиль
     let active = proxy.get_active_profile().await.expect("get_active_profile failed");
     assert_eq!(active.id, "");
+
+    // Проверяем, что trigger_ocr возвращает ошибку, так как RVMS сейчас остановлен
+    let ocr_res = proxy.trigger_ocr().await;
+    assert!(ocr_res.is_err());
 }
