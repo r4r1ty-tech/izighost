@@ -1,0 +1,36 @@
+/* Стили для IziGhost */
+
+.izighost-indicator-icon {
+    icon-size: 16px;
+}
+
+.izighost-hud-window {
+    background-color: rgba(0, 0, 0, 0);
+    /* Полностью прозрачный фон */
+    border: none;
+    /* Убираем рамку */
+    padding: 16px;
+    width: 400px;
+    height: 150px;
+}
+
+.izighost-hud-header {
+    margin-bottom: 12px;
+}
+
+.izighost-hud-title {
+    font-weight: bold;
+    font-size: 1.1em;
+    color: #3b82f6;
+    /* Делаем заголовок синим/акцентным для лучшей читаемости */
+    text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.8);
+    /* Тень для читаемости на любом фоне */
+}
+
+/* Стили для обычного текста */
+StLabel {
+    color: #e4e4e7;
+    /* zinc-200 */
+    text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.8);
+    /* Тень для читаемости на любом фоне */
+}

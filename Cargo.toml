@@ -47,7 +47,7 @@ pulldown-cmark = "0.12"    # markdown rendering (shared with app for prompt rend
 clap = { version = "4", features = ["derive"] }
 
 # ---- app-only ----
-eframe = "0.34"
+eframe = { version = "0.34", default-features = false, features = ["glow", "wgpu", "default_fonts", "wayland", "x11"] }
 ashpd = "0.10"                              # XDG portals
 syntect = "5"                                # syntax highlighting engine (pure-Rust, не GTK-locked)
 
