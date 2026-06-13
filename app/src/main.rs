@@ -117,6 +117,7 @@ impl eframe::App for IziGhostApp {
                 PreferencesState::new(self.gui_event_tx.clone())
             );
             let dbus_client = self.dbus_client.clone();
+            let mut show_preferences = self.hud_state.show_preferences;
             
             ui.ctx().show_viewport_immediate(
                 egui::ViewportId::from_hash_of("preferences_viewport"),
@@ -126,6 +127,9 @@ impl eframe::App for IziGhostApp {
                     .with_decorations(true)
                     .with_transparent(false),
                 |ctx, _class| {
+                    if ctx.input(|i| i.viewport().close_requested()) {
+                        show_preferences = false;
+                    }
                     egui::CentralPanel::default().show(ctx, |ui| {
                         preferences_state.draw(ui, &dbus_client);
                     });
@@ -134,6 +138,7 @@ impl eframe::App for IziGhostApp {
             
             // Возвращаем preferences_state обратно в структуру
             self.preferences_state = preferences_state;
+            self.hud_state.show_preferences = show_preferences;
         }
 
         // Запрашиваем перерисовку для плавной обработки асинхронных сигналов
