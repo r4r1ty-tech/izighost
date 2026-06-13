@@ -107,7 +107,7 @@ impl eframe::App for IziGhostApp {
 
         // 1. Отрисовка HUD в главном прозрачном окне
         egui::CentralPanel::default()
-            .frame(egui::Frame::none().fill(Color32::TRANSPARENT))
+            .frame(egui::Frame::NONE.fill(Color32::TRANSPARENT))
             .show_inside(ui, |ui| {
                 self.hud_state.draw(ui, &self.dbus_client, &self.preferences_state.active_id);
             });
@@ -133,6 +133,7 @@ impl eframe::App for IziGhostApp {
                     if ctx.input(|i| i.viewport().close_requested()) {
                         show_preferences = false;
                     }
+                    #[allow(deprecated)]
                     egui::CentralPanel::default().show(ctx, |ui| {
                         preferences_state.draw(ui, &dbus_client);
                     });
