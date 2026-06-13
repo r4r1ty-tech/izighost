@@ -49,7 +49,7 @@ def main():
     )
     
     # Setup GStreamer pipeline
-    pipeline_str = f"pipewiresrc path={node_id} ! queue ! videoconvert ! gtksink name=sink"
+    pipeline_str = f"pipewiresrc path={node_id} ! video/x-raw,width=1920,height=1080 ! queue ! videoconvert ! gtksink name=sink"
     pipeline = Gst.parse_launch(pipeline_str)
     sink = pipeline.get_by_name("sink")
     
