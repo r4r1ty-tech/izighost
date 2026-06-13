@@ -228,8 +228,10 @@ impl eframe::App for IziGhostApp {
                     if ctx.input(|i| i.viewport().close_requested()) {
                         show_preferences = false;
                     }
-                    #[allow(deprecated)]
-                    egui::CentralPanel::default().show(ctx, |ui| {
+                    let frame = egui::Frame::NONE
+                        .fill(Color32::from_rgb(20, 20, 22))
+                        .inner_margin(8.0);
+                    egui::CentralPanel::default().frame(frame).show_inside(ctx, |ui| {
                         preferences_state.draw(ui, &dbus_client);
                     });
                 },

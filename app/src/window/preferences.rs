@@ -194,16 +194,29 @@ impl PreferencesState {
         ui.style_mut().spacing.item_spacing = Vec2::new(8.0, 12.0);
 
         // Разделяем экран на две колонки: слева список профилей, справа — редактирование
+        let sidebar_frame = egui::Frame::NONE
+            .fill(Color32::from_rgb(15, 15, 17)) // Слегка более темный фон для боковой панели
+            .inner_margin(8.0)
+            .corner_radius(8.0);
+
         egui::Panel::left("sidebar_panel")
             .resizable(false)
             .default_size(200.0)
+            .frame(sidebar_frame)
             .show_inside(ui, |ui| {
                 self.draw_sidebar(ui, dbus_client);
             });
 
-        egui::CentralPanel::default().show_inside(ui, |ui| {
-            self.draw_main_panel(ui, dbus_client);
-        });
+        let main_frame = egui::Frame::NONE
+            .fill(Color32::from_rgb(20, 20, 22)) // Тот же премиальный цвет, что и в HUD
+            .inner_margin(12.0)
+            .corner_radius(8.0);
+
+        egui::CentralPanel::default()
+            .frame(main_frame)
+            .show_inside(ui, |ui| {
+                self.draw_main_panel(ui, dbus_client);
+            });
     }
 
     /// Левая колонка (Список профилей + RVMS управление)
