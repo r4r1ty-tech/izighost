@@ -95,7 +95,7 @@ impl HudState {
         ui.horizontal(|ui| {
             // Область для перетаскивания (значок + заголовок)
             let drag_area = ui.horizontal(|ui| {
-                ui.label(RichText::new("☰").size(14.0).color(Color32::from_rgb(160, 160, 170)));
+                ui.label(RichText::new("[=]").size(14.0).color(Color32::from_rgb(160, 160, 170)));
                 ui.label(RichText::new("IziGhost HUD").strong().color(Color32::WHITE));
             });
 
@@ -128,7 +128,7 @@ impl HudState {
             // Кнопка открытия настроек
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 let settings_btn = ui.add(
-                    egui::Button::new(RichText::new("⚙").size(16.0).color(Color32::from_rgb(200, 200, 205)))
+                    egui::Button::new(RichText::new("Настройки").size(12.0).color(Color32::from_rgb(200, 200, 205)))
                         .frame(false)
                 );
                 
@@ -197,7 +197,7 @@ impl HudState {
         ui.horizontal(|ui| {
             // Кнопка скриншота (OCR)
             let ocr_btn = ui.add(
-                egui::Button::new(RichText::new("📷").size(16.0))
+                egui::Button::new(RichText::new("Скрин").size(13.0))
                     .fill(Color32::from_rgb(45, 45, 50))
             ).on_hover_text("Сделать скриншот и распознать текст");
 
@@ -218,7 +218,7 @@ impl HudState {
             };
 
             let asr_btn = ui.add(
-                egui::Button::new(RichText::new("🎙").size(16.0).color(Color32::WHITE))
+                egui::Button::new(RichText::new("Голос").size(13.0).color(Color32::WHITE))
                     .fill(asr_color)
             ).on_hover_text("Голосовой ввод");
 
@@ -245,7 +245,7 @@ impl HudState {
                     .hint_text("Задать вопрос...")
             );
 
-            let send_clicked = ui.button("➤").clicked();
+            let send_clicked = ui.button(">").clicked();
             let enter_pressed = text_edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
 
             if (send_clicked || enter_pressed) && !self.input_text.trim().is_empty() {
