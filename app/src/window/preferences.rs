@@ -178,9 +178,9 @@ impl PreferencesState {
         ui.style_mut().spacing.item_spacing = Vec2::new(8.0, 12.0);
         
         // Разделяем экран на две колонки: слева список профилей, справа — редактирование
-        egui::SidePanel::left("sidebar_panel")
+        egui::Panel::left("sidebar_panel")
             .resizable(false)
-            .default_width(200.0)
+            .default_size(200.0)
             .show_inside(ui, |ui| {
                 self.draw_sidebar(ui, dbus_client);
             });
