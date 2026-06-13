@@ -10,6 +10,7 @@ pub struct HudState {
     pub is_listening: bool,
     pub active_profile_name: String,
     pub show_preferences: bool,
+    pub is_pinned: bool,
 }
 
 impl HudState {
@@ -21,6 +22,7 @@ impl HudState {
             is_listening: false,
             active_profile_name: "Не выбран".to_string(),
             show_preferences: false,
+            is_pinned: true,
         }
     }
 
@@ -93,21 +95,8 @@ impl HudState {
     /// Заголовок HUD
     fn draw_header(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
-            // Область для перетаскивания (значок + заголовок)
-            let drag_area = ui.horizontal(|ui| {
-                ui.label(RichText::new("[=]").size(14.0).color(Color32::from_rgb(160, 160, 170)));
-                ui.label(RichText::new("IziGhost HUD").strong().color(Color32::WHITE));
-            });
-
-            let drag_response = ui.interact(
-                drag_area.response.rect,
-                ui.id().with("hud_drag_handle"),
-                egui::Sense::click()
-            ).on_hover_text("Зажмите ЛКМ на заголовке для перемещения окна");
-
-            if drag_response.is_pointer_button_down_on() {
-                ui.ctx().send_viewport_cmd(egui::ViewportCommand::StartDrag);
-            }
+            // Заголовок HUD
+            ui.label(RichText::new("IziGhost HUD").strong().color(Color32::WHITE));
 
             ui.add_space(4.0);
 
@@ -121,9 +110,42 @@ impl HudState {
                 ui.label(
                     RichText::new(&self.active_profile_name)
                         .size(11.0)
-                        .color(Color32::from_rgb(160, 160, 170))
+                        .color(Color32::from_rgb(16, 185, 129))
                 );
             });
+
+            ui.add_space(4.0);
+
+            // Кнопка перетаскивания (Move/Drag)
+            let drag_btn = ui.add(
+                egui::Button::new(RichText::new("Перенести").size(11.0).color(Color32::WHITE))
+                    .fill(Color32::from_rgb(79, 70, 229))
+            ).on_hover_text("Зажмите ЛКМ для перемещения окна");
+
+            if drag_btn.is_pointer_button_down_on() {
+                ui.ctx().send_viewport_cmd(egui::ViewportCommand::StartDrag);
+            }
+
+            ui.add_space(2.0);
+
+            // Кнопка закрепления (Pin/Always on Top)
+            let pin_text = if self.is_pinned { "Открепить" } else { "Закрепить" };
+            let pin_color = if self.is_pinned { Color32::from_rgb(16, 185, 129) } else { Color32::from_rgb(45, 45, 50) };
+            
+            let pin_btn = ui.add(
+                egui::Button::new(RichText::new(pin_text).size(11.0).color(Color32::WHITE))
+                    .fill(pin_color)
+            );
+
+            if pin_btn.clicked() {
+                self.is_pinned = !self.is_pinned;
+                let level = if self.is_pinned {
+                    egui::WindowLevel::AlwaysOnTop
+                } else {
+                    egui::WindowLevel::Normal
+                };
+                ui.ctx().send_viewport_cmd(egui::ViewportCommand::WindowLevel(level));
+            }
 
             // Кнопка открытия настроек
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
