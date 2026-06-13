@@ -93,13 +93,19 @@ impl HudState {
     /// Заголовок HUD
     fn draw_header(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
-            // Делаем заголовок перетаскиваемым
-            let title_response = ui.add(
-                egui::Label::new(RichText::new("IziGhost HUD").strong().color(Color32::WHITE))
-                    .sense(egui::Sense::drag())
-            ).on_hover_text("Зажмите ЛКМ для перемещения окна");
+            // Область для перетаскивания (значок + заголовок)
+            let drag_area = ui.horizontal(|ui| {
+                ui.label(RichText::new("☰").size(14.0).color(Color32::from_rgb(160, 160, 170)));
+                ui.label(RichText::new("IziGhost HUD").strong().color(Color32::WHITE));
+            });
 
-            if title_response.dragged() {
+            let drag_response = ui.interact(
+                drag_area.response.rect,
+                ui.id().with("hud_drag_handle"),
+                egui::Sense::click()
+            ).on_hover_text("Зажмите ЛКМ на заголовке для перемещения окна");
+
+            if drag_response.is_pointer_button_down_on() {
                 ui.ctx().send_viewport_cmd(egui::ViewportCommand::StartDrag);
             }
 
