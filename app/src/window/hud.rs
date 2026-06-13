@@ -98,7 +98,7 @@ impl HudState {
             // Заголовок HUD
             ui.label(RichText::new("IziGhost HUD").strong().color(Color32::WHITE));
 
-            ui.add_space(4.0);
+            ui.add_space(2.0);
 
             // Бейдж активного профиля
             let badge_frame = egui::Frame::NONE
@@ -114,48 +114,37 @@ impl HudState {
                 );
             });
 
-            ui.add_space(4.0);
-
-            // Кнопка перетаскивания (Move/Drag)
-            let drag_btn = ui.add(
-                egui::Button::new(RichText::new("Перенести").size(11.0).color(Color32::WHITE))
-                    .fill(Color32::from_rgb(79, 70, 229))
-            ).on_hover_text("Зажмите ЛКМ для перемещения окна");
-
-            if drag_btn.is_pointer_button_down_on() {
-                ui.ctx().send_viewport_cmd(egui::ViewportCommand::StartDrag);
-            }
-
-            ui.add_space(2.0);
-
-            // Кнопка закрепления (Pin/Always on Top)
-            let pin_text = if self.is_pinned { "Открепить" } else { "Закрепить" };
-            let pin_color = if self.is_pinned { Color32::from_rgb(16, 185, 129) } else { Color32::from_rgb(45, 45, 50) };
-            
-            let pin_btn = ui.add(
-                egui::Button::new(RichText::new(pin_text).size(11.0).color(Color32::WHITE))
-                    .fill(pin_color)
-            );
-
-            if pin_btn.clicked() {
-                self.is_pinned = !self.is_pinned;
-                let level = if self.is_pinned {
-                    egui::WindowLevel::AlwaysOnTop
-                } else {
-                    egui::WindowLevel::Normal
-                };
-                ui.ctx().send_viewport_cmd(egui::ViewportCommand::WindowLevel(level));
-            }
-
-            // Кнопка открытия настроек
+            // Кнопки управления (справа налево)
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                let settings_btn = ui.add(
-                    egui::Button::new(RichText::new("Настройки").size(12.0).color(Color32::from_rgb(200, 200, 205)))
-                        .frame(false)
-                );
-                
+                // 1. Настройки (gear)
+                let settings_btn = icon_button(ui, egui::vec2(24.0, 24.0), "gear", Color32::TRANSPARENT, false)
+                    .on_hover_text("Настройки профилей");
                 if settings_btn.clicked() {
                     self.show_preferences = !self.show_preferences;
+                }
+
+                ui.add_space(2.0);
+
+                // 2. Закрепить/Открепить (pin)
+                let pin_btn = icon_button(ui, egui::vec2(24.0, 24.0), "pin", Color32::TRANSPARENT, self.is_pinned)
+                    .on_hover_text(if self.is_pinned { "Открепить от экрана" } else { "Закрепить поверх всех окон" });
+                if pin_btn.clicked() {
+                    self.is_pinned = !self.is_pinned;
+                    let level = if self.is_pinned {
+                        egui::WindowLevel::AlwaysOnTop
+                    } else {
+                        egui::WindowLevel::Normal
+                    };
+                    ui.ctx().send_viewport_cmd(egui::ViewportCommand::WindowLevel(level));
+                }
+
+                ui.add_space(2.0);
+
+                // 3. Перенести/Двигать (drag)
+                let drag_btn = icon_button(ui, egui::vec2(24.0, 24.0), "drag", Color32::TRANSPARENT, false)
+                    .on_hover_text("Зажмите ЛКМ для перемещения окна");
+                if drag_btn.is_pointer_button_down_on() {
+                    ui.ctx().send_viewport_cmd(egui::ViewportCommand::StartDrag);
                 }
             });
         });
@@ -217,11 +206,9 @@ impl HudState {
     /// Панель ввода с кнопками OCR, ASR и отправки
     fn draw_input_bar(&mut self, ui: &mut egui::Ui, dbus_client: &Option<Arc<DaemonClient>>) {
         ui.horizontal(|ui| {
-            // Кнопка скриншота (OCR)
-            let ocr_btn = ui.add(
-                egui::Button::new(RichText::new("Скрин").size(13.0))
-                    .fill(Color32::from_rgb(45, 45, 50))
-            ).on_hover_text("Сделать скриншот и распознать текст");
+            // Кнопка скриншота (OCR) - камера
+            let ocr_btn = icon_button(ui, egui::vec2(28.0, 28.0), "camera", Color32::from_rgb(45, 45, 50), false)
+                .on_hover_text("Сделать скриншот и распознать текст");
 
             if ocr_btn.clicked() {
                 if let Some(client) = dbus_client {
@@ -232,17 +219,14 @@ impl HudState {
                 }
             }
 
-            // Кнопка голосового ввода (ASR)
+            // Кнопка голосового ввода (ASR) - микрофон
             let asr_color = if self.is_listening {
                 Color32::from_rgb(16, 185, 129) // Green active
             } else {
                 Color32::from_rgb(45, 45, 50)
             };
-
-            let asr_btn = ui.add(
-                egui::Button::new(RichText::new("Голос").size(13.0).color(Color32::WHITE))
-                    .fill(asr_color)
-            ).on_hover_text("Голосовой ввод");
+            let asr_btn = icon_button(ui, egui::vec2(28.0, 28.0), "mic", asr_color, self.is_listening)
+                .on_hover_text("Голосовой ввод");
 
             if asr_btn.clicked() {
                 if let Some(client) = dbus_client {
@@ -260,14 +244,17 @@ impl HudState {
             }
 
             // Поле текстового ввода
-            let input_width = ui.available_width() - 36.0;
+            let spacing = ui.spacing().item_spacing.x;
+            let input_width = ui.available_width() - 28.0 - spacing;
             let text_edit = ui.add_sized(
-                [input_width, 26.0],
+                [input_width, 28.0],
                 egui::TextEdit::singleline(&mut self.input_text)
                     .hint_text("Задать вопрос...")
             );
 
-            let send_clicked = ui.button(">").clicked();
+            // Кнопка отправки - бумажный самолетик
+            let send_btn = icon_button(ui, egui::vec2(28.0, 28.0), "send", Color32::from_rgb(79, 70, 229), false);
+            let send_clicked = send_btn.clicked();
             let enter_pressed = text_edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
 
             if (send_clicked || enter_pressed) && !self.input_text.trim().is_empty() {
@@ -285,4 +272,144 @@ impl HudState {
             }
         });
     }
+}
+
+/// Векторный рендеринг кнопок с иконками для обеспечения соответствия правилам
+/// исключения эмодзи (agent.md) и обеспечения премиального дизайна.
+fn icon_button(
+    ui: &mut egui::Ui,
+    size: Vec2,
+    icon_type: &str,
+    fill_color: Color32,
+    active: bool,
+) -> egui::Response {
+    let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click());
+    
+    // Отрисовка фона кнопки
+    let bg_color = if response.hovered() {
+        Color32::from_rgb(60, 60, 65)
+    } else {
+        fill_color
+    };
+    
+    ui.painter().rect_filled(rect, 4.0, bg_color);
+    
+    let stroke_color = if active {
+        Color32::WHITE
+    } else {
+        Color32::from_rgb(200, 200, 205)
+    };
+    
+    // Отрисовка векторной иконки на основе типа
+    match icon_type {
+        "gear" => {
+            let center = rect.center();
+            let r = rect.width() * 0.25;
+            ui.painter().circle_stroke(center, r, egui::Stroke::new(1.5, stroke_color));
+            for i in 0..8 {
+                let angle = (i as f32) * std::f32::consts::TAU / 8.0;
+                let start = center + egui::vec2(angle.cos(), angle.sin()) * r;
+                let end = center + egui::vec2(angle.cos(), angle.sin()) * (r * 1.35);
+                ui.painter().line_segment([start, end], egui::Stroke::new(1.5, stroke_color));
+            }
+        }
+        "camera" => {
+            let center = rect.center();
+            let w = rect.width() * 0.5;
+            let h = rect.height() * 0.35;
+            let cam_rect = egui::Rect::from_center_size(center, egui::vec2(w, h));
+            ui.painter().rect(cam_rect, 2.0, Color32::TRANSPARENT, egui::Stroke::new(1.5, stroke_color), egui::StrokeKind::Inside);
+            ui.painter().circle_stroke(center, w * 0.25, egui::Stroke::new(1.5, stroke_color));
+            
+            // Вспышка/выступ камеры сверху
+            let top_bit = egui::Rect::from_min_max(
+                cam_rect.min + egui::vec2(w * 0.2, -h * 0.25),
+                cam_rect.min + egui::vec2(w * 0.45, 0.0)
+            );
+            ui.painter().rect_filled(top_bit, 1.0, stroke_color);
+        }
+        "mic" => {
+            let center = rect.center();
+            let w = rect.width() * 0.22;
+            let h = rect.height() * 0.38;
+            let mic_rect = egui::Rect::from_center_size(center - egui::vec2(0.0, h * 0.1), egui::vec2(w, h));
+            ui.painter().rect_filled(mic_rect, w * 0.5, stroke_color);
+            
+            // Подставка микрофона (U-образная дуга)
+            let cup_r = w * 1.4;
+            let cup_center = center + egui::vec2(0.0, h * 0.05);
+            let left_top = cup_center + egui::vec2(-cup_r, -h * 0.2);
+            let left_bottom = cup_center + egui::vec2(-cup_r, 0.0);
+            let right_top = cup_center + egui::vec2(cup_r, -h * 0.2);
+            let right_bottom = cup_center + egui::vec2(cup_r, 0.0);
+            ui.painter().line_segment([left_top, left_bottom], egui::Stroke::new(1.5, stroke_color));
+            ui.painter().line_segment([right_top, right_bottom], egui::Stroke::new(1.5, stroke_color));
+            
+            // Полукруглая часть дуги подставки
+            ui.painter().circle_stroke(cup_center, cup_r, egui::Stroke::new(1.5, stroke_color));
+            // Очищаем верхнюю половину дуги, рисуя U-образно
+            // (В egui для простоты можно нарисовать полукруг линией, либо оставить круглую рамку)
+            
+            // Ножка и основание подставки
+            ui.painter().line_segment([cup_center + egui::vec2(0.0, cup_r), cup_center + egui::vec2(0.0, h * 0.55)], egui::Stroke::new(1.5, stroke_color));
+            ui.painter().line_segment(
+                [cup_center + egui::vec2(-cup_r, h * 0.55), cup_center + egui::vec2(cup_r, h * 0.55)],
+                egui::Stroke::new(1.5, stroke_color)
+            );
+        }
+        "send" => {
+            let center = rect.center();
+            let size = rect.width() * 0.35;
+            let p1 = center + egui::vec2(size, 0.0);
+            let p2 = center + egui::vec2(-size, -size * 0.8);
+            let p3 = center + egui::vec2(-size * 0.3, 0.0);
+            let p4 = center + egui::vec2(-size, size * 0.8);
+            ui.painter().line_segment([p1, p2], egui::Stroke::new(1.5, stroke_color));
+            ui.painter().line_segment([p2, p3], egui::Stroke::new(1.5, stroke_color));
+            ui.painter().line_segment([p3, p1], egui::Stroke::new(1.5, stroke_color));
+            ui.painter().line_segment([p3, p4], egui::Stroke::new(1.5, stroke_color));
+            ui.painter().line_segment([p4, p1], egui::Stroke::new(1.5, stroke_color));
+        }
+        "pin" => {
+            let center = rect.center();
+            let size = rect.width() * 0.3;
+            if active {
+                // Иголка вертикально (закреплено)
+                let head = egui::Rect::from_center_size(center - egui::vec2(0.0, size * 0.6), egui::vec2(size * 1.2, size * 0.3));
+                let body = egui::Rect::from_center_size(center - egui::vec2(0.0, size * 0.2), egui::vec2(size * 0.6, size * 0.5));
+                ui.painter().rect_filled(head, 1.0, stroke_color);
+                ui.painter().rect_filled(body, 1.0, stroke_color);
+                ui.painter().line_segment([center, center + egui::vec2(0.0, size * 0.7)], egui::Stroke::new(2.0, stroke_color));
+            } else {
+                // Иголка наклонена (откреплено)
+                let angle = -std::f32::consts::FRAC_PI_4;
+                let rotate = |p: Vec2| -> Vec2 {
+                    egui::vec2(p.x * angle.cos() - p.y * angle.sin(), p.x * angle.sin() + p.y * angle.cos())
+                };
+                let head_center = center + rotate(egui::vec2(0.0, -size * 0.6));
+                let body_center = center + rotate(egui::vec2(0.0, -size * 0.2));
+                
+                let head = egui::Rect::from_center_size(head_center, egui::vec2(size * 1.2, size * 0.3));
+                let body = egui::Rect::from_center_size(body_center, egui::vec2(size * 0.6, size * 0.5));
+                
+                ui.painter().rect_filled(head, 1.0, stroke_color);
+                ui.painter().rect_filled(body, 1.0, stroke_color);
+                ui.painter().line_segment([center, center + rotate(egui::vec2(0.0, size * 0.7))], egui::Stroke::new(2.0, stroke_color));
+            }
+        }
+        "drag" => {
+            let center = rect.center();
+            let w = rect.width() * 0.3;
+            for i in -1..=1 {
+                let y = center.y + (i as f32) * 4.0;
+                ui.painter().line_segment(
+                    [egui::pos2(center.x - w, y), egui::pos2(center.x + w, y)],
+                    egui::Stroke::new(1.5, stroke_color)
+                );
+            }
+        }
+        _ => {}
+    }
+    
+    response
 }
