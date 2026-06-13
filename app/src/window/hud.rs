@@ -75,7 +75,7 @@ impl HudState {
             Color32::from_rgb(45, 45, 50)
         };
 
-        let frame = egui::Frame::none()
+        let frame = egui::Frame::NONE
             .fill(Color32::from_rgba_unmultiplied(20, 20, 22, 240)) // Glassmorphism
             .stroke(Stroke::new(1.5, border_color))
             .inner_margin(12.0)
@@ -93,11 +93,11 @@ impl HudState {
     /// Заголовок HUD
     fn draw_header(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
-            ui.label(RichText::new("IziGhost HUD").bold().color(Color32::WHITE));
+            ui.label(RichText::new("IziGhost HUD").strong().color(Color32::WHITE));
             ui.add_space(4.0);
 
             // Бейдж активного профиля
-            let badge_frame = egui::Frame::none()
+            let badge_frame = egui::Frame::NONE
                 .fill(Color32::from_rgb(45, 45, 50))
                 .inner_margin(Vec2::new(6.0, 2.0))
                 .corner_radius(4.0);
@@ -155,7 +155,7 @@ impl HudState {
                                 Color32::from_rgb(37, 37, 41) // Dark grey
                             };
 
-                            let msg_frame = egui::Frame::none()
+                            let msg_frame = egui::Frame::NONE
                                 .fill(bg)
                                 .inner_margin(8.0)
                                 .corner_radius(8.0);
