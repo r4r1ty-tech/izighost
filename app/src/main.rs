@@ -138,6 +138,7 @@ impl IziGhostApp {
         preferences_state.init(&dbus_client);
 
         // Автоматически отправляем запрос на закрепление окна при старте через 200 мс
+        let event_tx_clone = gui_event_tx.clone();
         if let Some(ref client) = dbus_client {
             let client_clone = client.clone();
             tokio::spawn(async move {
@@ -145,8 +146,14 @@ impl IziGhostApp {
                 let pid = std::process::id();
                 match client_clone.pin_window_by_pid(pid).await {
                     Ok(true) => println!("Окно HUD успешно закреплено поверх всех окон Wayland."),
-                    Ok(false) => eprintln!("Mutter не нашел окно с PID {}.", pid),
-                    Err(e) => eprintln!("Ошибка D-Bus при первоначальном закреплении окна: {:?}", e),
+                    Ok(false) => {
+                        eprintln!("Mutter не нашел окно с PID {}.", pid);
+                        let _ = event_tx_clone.send(GuiEvent::ExtensionNotLoaded);
+                    }
+                    Err(e) => {
+                        eprintln!("Ошибка D-Bus при первоначальном закреплении окна: {:?}", e);
+                        let _ = event_tx_clone.send(GuiEvent::ExtensionNotLoaded);
+                    }
                 }
             });
         }
@@ -173,8 +180,15 @@ impl IziGhostApp {
     /// Опрос событий GUI из фоновых потоков
     fn handle_gui_events(&mut self) {
         while let Ok(event) = self.gui_event_rx.try_recv() {
-            self.preferences_state
-                .handle_event(event, &self.dbus_client);
+            match event {
+                GuiEvent::ExtensionNotLoaded => {
+                    self.hud_state.show_extension_warning = true;
+                }
+                other => {
+                    self.preferences_state
+                        .handle_event(other, &self.dbus_client);
+                }
+            }
         }
     }
 }

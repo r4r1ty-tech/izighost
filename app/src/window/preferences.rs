@@ -16,6 +16,7 @@ pub enum GuiEvent {
     RvmsStarted(u32),
     RvmsStopped,
     Error(String),
+    ExtensionNotLoaded,
 }
 
 pub struct PreferencesState {
@@ -153,6 +154,7 @@ impl PreferencesState {
             GuiEvent::Error(msg) => {
                 self.status_message = Some((msg, true));
             }
+            GuiEvent::ExtensionNotLoaded => {}
         }
     }
 

@@ -11,6 +11,7 @@ pub struct HudState {
     pub active_profile_name: String,
     pub show_preferences: bool,
     pub is_pinned: bool,
+    pub show_extension_warning: bool,
 }
 
 impl HudState {
@@ -23,6 +24,7 @@ impl HudState {
             active_profile_name: "Не выбран".to_string(),
             show_preferences: false,
             is_pinned: true,
+            show_extension_warning: false,
         }
     }
 
@@ -91,6 +93,10 @@ impl HudState {
 
         frame.show(ui, |ui| {
             self.draw_header(ui, dbus_client);
+            if self.show_extension_warning {
+                ui.add_space(4.0);
+                self.draw_extension_warning(ui);
+            }
             ui.separator();
             self.draw_chat_history(ui);
             ui.separator();
@@ -208,6 +214,41 @@ impl HudState {
                 if drag_btn.is_pointer_button_down_on() {
                     ui.ctx().send_viewport_cmd(egui::ViewportCommand::StartDrag);
                 }
+            });
+        });
+    }
+
+    /// Отрисовка предупреждения о необходимости перезапуска сессии для расширения GNOME
+    fn draw_extension_warning(&mut self, ui: &mut egui::Ui) {
+        let warning_frame = egui::Frame::NONE
+            .fill(Color32::from_rgb(120, 30, 30))
+            .inner_margin(8.0)
+            .corner_radius(6.0);
+
+        warning_frame.show(ui, |ui| {
+            ui.vertical(|ui| {
+                ui.horizontal(|ui| {
+                    ui.label(
+                        RichText::new("⚠️ Перезапуск GNOME Wayland")
+                            .strong()
+                            .color(Color32::WHITE),
+                    );
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui.button("❌").clicked() {
+                            self.show_extension_warning = false;
+                        }
+                    });
+                });
+                ui.add_space(4.0);
+                ui.label(
+                    RichText::new(
+                        "Установлен мост Window Pin Bridge.\n\
+                         Для включения Always-On-Top под Wayland\n\
+                         пожалуйста, перезайдите в систему (Log Out).",
+                    )
+                    .size(11.0)
+                    .color(Color32::from_rgb(240, 240, 240)),
+                );
             });
         });
     }
