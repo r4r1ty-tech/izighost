@@ -1,4 +1,5 @@
 use crate::dbus::{DaemonClient, DaemonSignal};
+use crate::window::theme;
 use eframe::egui;
 use eframe::egui::{Color32, RichText, Stroke, Vec2};
 use std::sync::Arc;
@@ -76,13 +77,13 @@ impl HudState {
             self.active_profile_name = "Не выбран".to_string();
         }
 
-        // Рендерим HUD внутри контейнера с красивой рамкой
+        // Цвет рамки зависит от состояния
         let border_color = if self.is_generating {
-            Color32::from_rgb(99, 102, 241) // Индиго
+            theme::ACCENT
         } else if self.is_listening {
-            Color32::from_rgb(16, 185, 129) // Зеленый для ASR
+            theme::GREEN
         } else {
-            Color32::from_rgb(45, 45, 50)
+            theme::BORDER_SUBTLE
         };
 
         let frame = egui::Frame::NONE
@@ -107,14 +108,18 @@ impl HudState {
     /// Заголовок HUD
     fn draw_header(&mut self, ui: &mut egui::Ui, dbus_client: &Option<Arc<DaemonClient>>) {
         ui.horizontal(|ui| {
-            // Заголовок HUD
-            ui.label(RichText::new("IziGhost").strong().size(14.0).color(Color32::WHITE));
+            ui.label(
+                RichText::new("IziGhost")
+                    .strong()
+                    .size(14.0)
+                    .color(theme::TEXT_PRIMARY),
+            );
 
             ui.add_space(4.0);
 
             // Бейдж активного профиля
             let badge_frame = egui::Frame::NONE
-                .fill(Color32::from_rgb(45, 45, 50))
+                .fill(theme::BG_CARD)
                 .inner_margin(Vec2::new(6.0, 2.0))
                 .corner_radius(4.0);
 
@@ -122,30 +127,29 @@ impl HudState {
                 ui.label(
                     RichText::new(&self.active_profile_name)
                         .size(11.0)
-                        .color(Color32::from_rgb(16, 185, 129)),
+                        .color(theme::GREEN),
                 );
             });
 
             // Кнопки управления (справа налево)
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 // Выход
-                if text_icon_btn(ui, "\u{2715}", "Закрыть приложение", false).clicked() {
+                if header_btn(ui, "\u{2715}", "Закрыть приложение", false).clicked() {
                     ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
                 }
 
                 // Настройки
-                if text_icon_btn(ui, "\u{2699}", "Настройки профилей", false).clicked() {
+                if header_btn(ui, "\u{2699}", "Настройки профилей", false).clicked() {
                     self.show_preferences = !self.show_preferences;
                 }
 
                 // Закрепить/Открепить
-                let pin_label = if self.is_pinned { "\u{1F4CC}" } else { "\u{1F4CC}" };
                 let pin_tip = if self.is_pinned {
                     "Открепить от экрана"
                 } else {
                     "Закрепить поверх всех окон"
                 };
-                if text_icon_btn(ui, pin_label, pin_tip, self.is_pinned).clicked() {
+                if header_btn(ui, "\u{1F4CC}", pin_tip, self.is_pinned).clicked() {
                     self.is_pinned = !self.is_pinned;
                     let level = if self.is_pinned {
                         egui::WindowLevel::AlwaysOnTop
@@ -174,7 +178,7 @@ impl HudState {
 
                 // Перетаскивание
                 let drag_resp =
-                    text_icon_btn(ui, "\u{2630}", "Зажмите для перемещения окна", false);
+                    header_btn(ui, "\u{2630}", "Зажмите для перемещения окна", false);
                 if drag_resp.is_pointer_button_down_on() {
                     ui.ctx().send_viewport_cmd(egui::ViewportCommand::StartDrag);
                 }
@@ -182,14 +186,14 @@ impl HudState {
         });
     }
 
-    /// Отрисовка предупреждения о необходимости перезапуска сессии для расширения GNOME
+    /// Отрисовка предупреждения о необходимости перезапуска сессии
     fn draw_extension_warning(&mut self, ui: &mut egui::Ui) {
-        let warning_frame = egui::Frame::NONE
-            .fill(Color32::from_rgb(100, 40, 10))
+        let frame = egui::Frame::NONE
+            .fill(theme::WARN_BG)
             .inner_margin(8.0)
             .corner_radius(6.0);
 
-        warning_frame.show(ui, |ui| {
+        frame.show(ui, |ui| {
             ui.horizontal(|ui| {
                 ui.label(
                     RichText::new("Для Always-On-Top перезайдите в систему (Log Out).")
@@ -222,12 +226,12 @@ impl HudState {
                         ui.add_space(30.0);
                         ui.label(
                             RichText::new("Ассистент готов к работе.")
-                                .color(Color32::from_rgb(110, 110, 120)),
+                                .color(theme::TEXT_MUTED),
                         );
                         ui.label(
                             RichText::new("Задайте вопрос текстом, скриншотом или голосом.")
                                 .size(11.0)
-                                .color(Color32::from_rgb(90, 90, 100)),
+                                .color(theme::TEXT_HINT),
                         );
                     });
                 } else {
@@ -243,33 +247,33 @@ impl HudState {
 
                         ui.with_layout(egui::Layout::top_down(align), |ui| {
                             let bg = if is_user {
-                                Color32::from_rgb(79, 70, 229) // Indigo
+                                theme::ACCENT
                             } else if is_system {
-                                Color32::from_rgb(180, 40, 40) // Red
+                                theme::RED_SOFT
                             } else {
-                                Color32::from_rgb(37, 37, 41) // Dark grey
+                                theme::BG_CARD
                             };
 
-                            let msg_frame = egui::Frame::NONE
+                            egui::Frame::NONE
                                 .fill(bg)
                                 .inner_margin(8.0)
-                                .corner_radius(8.0);
-
-                            msg_frame.show(ui, |ui| {
-                                ui.label(RichText::new(text).color(Color32::WHITE));
-                            });
+                                .corner_radius(8.0)
+                                .show(ui, |ui| {
+                                    ui.label(
+                                        RichText::new(text).color(theme::TEXT_PRIMARY),
+                                    );
+                                });
                         });
                         ui.add_space(4.0);
                     }
                 }
 
-                // Индикатор генерации
                 if self.is_generating {
                     ui.horizontal(|ui| {
                         ui.label(
                             RichText::new("IziGhost печатает...")
                                 .italics()
-                                .color(Color32::from_rgb(110, 110, 120)),
+                                .color(theme::TEXT_MUTED),
                         );
                     });
                 }
@@ -285,9 +289,9 @@ impl HudState {
                     egui::Button::new(
                         RichText::new("\u{1F4F7}")
                             .size(16.0)
-                            .color(Color32::from_rgb(200, 200, 205)),
+                            .color(theme::TEXT_SECONDARY),
                     )
-                    .fill(Color32::from_rgb(45, 45, 50))
+                    .fill(theme::BG_BUTTON)
                     .corner_radius(6.0)
                     .min_size(egui::vec2(28.0, 28.0)),
                 )
@@ -305,19 +309,19 @@ impl HudState {
             }
 
             // Кнопка голосового ввода (ASR)
-            let mic_color = if self.is_listening {
-                Color32::from_rgb(16, 185, 129)
+            let mic_bg = if self.is_listening {
+                theme::GREEN
             } else {
-                Color32::from_rgb(45, 45, 50)
+                theme::BG_BUTTON
             };
             let asr_btn = ui
                 .add(
                     egui::Button::new(
                         RichText::new("\u{1F3A4}")
                             .size(16.0)
-                            .color(Color32::from_rgb(200, 200, 205)),
+                            .color(theme::TEXT_SECONDARY),
                     )
-                    .fill(mic_color)
+                    .fill(mic_bg)
                     .corner_radius(6.0)
                     .min_size(egui::vec2(28.0, 28.0)),
                 )
@@ -347,17 +351,12 @@ impl HudState {
             );
 
             // Кнопка отправки
-            let send_btn = ui
-                .add(
-                    egui::Button::new(
-                        RichText::new("\u{27A4}")
-                            .size(16.0)
-                            .color(Color32::WHITE),
-                    )
-                    .fill(Color32::from_rgb(79, 70, 229))
+            let send_btn = ui.add(
+                egui::Button::new(RichText::new("\u{27A4}").size(16.0).color(theme::TEXT_PRIMARY))
+                    .fill(theme::ACCENT)
                     .corner_radius(6.0)
                     .min_size(egui::vec2(28.0, 28.0)),
-                );
+            );
             let send_clicked = send_btn.clicked();
             let enter_pressed =
                 text_edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
@@ -379,22 +378,19 @@ impl HudState {
     }
 }
 
-/// Текстовая иконка-кнопка для заголовка HUD
-fn text_icon_btn(
+/// Кнопка заголовка HUD (текстовая иконка)
+fn header_btn(
     ui: &mut egui::Ui,
     icon: &str,
     tooltip: &str,
     active: bool,
 ) -> egui::Response {
-    let text_color = if active {
-        Color32::WHITE
+    let color = if active {
+        theme::TEXT_PRIMARY
     } else {
-        Color32::from_rgb(180, 180, 185)
+        theme::TEXT_SECONDARY
     };
 
-    ui.add(
-        egui::Button::new(RichText::new(icon).size(15.0).color(text_color))
-            .frame(false),
-    )
-    .on_hover_text(tooltip)
+    ui.add(egui::Button::new(RichText::new(icon).size(15.0).color(color)).frame(false))
+        .on_hover_text(tooltip)
 }

@@ -1,6 +1,7 @@
 use crate::dbus::DaemonClient;
+use crate::window::theme;
 use eframe::egui;
-use eframe::egui::{Color32, RichText, Vec2};
+use eframe::egui::{RichText, Vec2};
 use izighost_common::{KeyringStore, Profile};
 use std::sync::Arc;
 use tokio::sync::mpsc::UnboundedSender;
@@ -191,26 +192,24 @@ impl PreferencesState {
 
     /// Рендеринг интерфейса настроек
     pub fn draw(&mut self, ui: &mut egui::Ui, dbus_client: &Option<Arc<DaemonClient>>) {
-        ui.style_mut().spacing.item_spacing = Vec2::new(8.0, 12.0);
+        ui.style_mut().spacing.item_spacing = Vec2::new(8.0, 8.0);
 
-        // Разделяем экран на две колонки: слева список профилей, справа — редактирование
         let sidebar_frame = egui::Frame::NONE
-            .fill(Color32::from_rgb(15, 15, 17)) // Слегка более темный фон для боковой панели
-            .inner_margin(8.0)
+            .fill(theme::BG_SIDEBAR)
+            .inner_margin(10.0)
             .corner_radius(8.0);
 
         egui::Panel::left("sidebar_panel")
             .resizable(false)
-            .default_size(200.0)
+            .default_size(210.0)
             .frame(sidebar_frame)
             .show_inside(ui, |ui| {
                 self.draw_sidebar(ui, dbus_client);
             });
 
         let main_frame = egui::Frame::NONE
-            .fill(Color32::from_rgb(20, 20, 22)) // Тот же премиальный цвет, что и в HUD
-            .inner_margin(12.0)
-            .corner_radius(8.0);
+            .fill(theme::BG_PRIMARY)
+            .inner_margin(16.0);
 
         egui::CentralPanel::default()
             .frame(main_frame)
@@ -222,15 +221,9 @@ impl PreferencesState {
     /// Левая колонка (Список профилей + RVMS управление)
     fn draw_sidebar(&mut self, ui: &mut egui::Ui, dbus_client: &Option<Arc<DaemonClient>>) {
         ui.vertical(|ui| {
-            ui.add_space(8.0);
-            ui.label(
-                RichText::new("ПРОФИЛИ")
-                    .strong()
-                    .color(Color32::from_rgb(110, 110, 120)),
-            );
             ui.add_space(4.0);
+            theme::section_heading(ui, "ПРОФИЛИ");
 
-            // Список профилей
             egui::ScrollArea::vertical()
                 .max_height(280.0)
                 .show(ui, |ui| {
@@ -239,21 +232,30 @@ impl PreferencesState {
                         let is_active = Some(id.clone()) == self.active_id;
 
                         let text = if is_active {
-                            format!("[Акт] {}", id)
+                            format!("\u{2022} {}", id) // Зелёная точка перед активным
                         } else {
                             id.clone()
                         };
 
-                        let btn_color = if is_selected {
-                            Color32::from_rgb(99, 102, 241) // Indigo
+                        let text_color = if is_active {
+                            theme::GREEN
                         } else {
-                            Color32::from_rgb(45, 45, 50)
+                            theme::TEXT_PRIMARY
+                        };
+
+                        let btn_color = if is_selected {
+                            theme::ACCENT
+                        } else {
+                            theme::BG_BUTTON
                         };
 
                         let btn = ui.add_sized(
-                            [ui.available_width() - 4.0, 32.0],
-                            egui::Button::new(RichText::new(text).color(Color32::WHITE))
-                                .fill(btn_color),
+                            [ui.available_width(), 30.0],
+                            egui::Button::new(
+                                RichText::new(text).size(12.0).color(text_color),
+                            )
+                            .fill(btn_color)
+                            .corner_radius(6.0),
                         );
 
                         if btn.clicked() {
@@ -263,20 +265,10 @@ impl PreferencesState {
                     }
                 });
 
-            ui.add_space(10.0);
+            ui.add_space(8.0);
 
             // Кнопка создания нового профиля
-            let create_btn = ui.add_sized(
-                [ui.available_width() - 4.0, 36.0],
-                egui::Button::new(
-                    RichText::new("+ Новый профиль")
-                        .strong()
-                        .color(Color32::WHITE),
-                )
-                .fill(Color32::from_rgb(16, 185, 129)), // Green
-            );
-
-            if create_btn.clicked() {
+            if theme::green_button(ui, "+ Новый профиль", ui.available_width()).clicked() {
                 let random_id = format!(
                     "profile_{}",
                     std::time::SystemTime::now()
@@ -296,65 +288,27 @@ impl PreferencesState {
                 self.asr_key_input.clear();
             }
 
-            ui.add_space(20.0);
-            ui.separator();
-            ui.add_space(10.0);
+            theme::spaced_separator(ui);
 
             // Панель управления RVMS
-            ui.label(
-                RichText::new("ВИРТУАЛЬНЫЙ ЭКРАН")
-                    .strong()
-                    .color(Color32::from_rgb(110, 110, 120)),
-            );
-            ui.add_space(4.0);
+            theme::section_heading(ui, "ВИРТУАЛЬНЫЙ ЭКРАН");
 
             let status_text = if self.is_rvms_active {
-                format!("Активен (PW ID: {})", self.pipewire_node_id.unwrap_or(0))
+                format!("Активен (PW: {})", self.pipewire_node_id.unwrap_or(0))
             } else {
                 "Отключен".to_string()
             };
 
-            let status_color = if self.is_rvms_active {
-                Color32::from_rgb(52, 211, 153) // Green
-            } else {
-                Color32::from_rgb(248, 113, 113) // Red
-            };
-
-            ui.horizontal(|ui| {
-                ui.label("Статус:");
-                ui.label(RichText::new(status_text).strong().color(status_color));
-            });
+            theme::status_indicator(ui, "Статус:", &status_text, self.is_rvms_active);
 
             ui.add_space(6.0);
 
-            let rvms_action_text = if self.is_rvms_active {
-                "Остановить RVMS"
-            } else {
-                "Запустить RVMS"
-            };
-            let rvms_action_color = if self.is_rvms_active {
-                Color32::from_rgb(220, 38, 38)
-            } else {
-                Color32::from_rgb(79, 70, 229)
-            };
-
-            let rvms_btn = ui.add_sized(
-                [ui.available_width() - 4.0, 34.0],
-                egui::Button::new(
-                    RichText::new(rvms_action_text)
-                        .strong()
-                        .color(Color32::WHITE),
-                )
-                .fill(rvms_action_color),
-            );
-
-            if rvms_btn.clicked() {
-                if let Some(client) = dbus_client {
-                    let client = client.clone();
-                    let tx = self.event_tx.clone();
-                    let is_active = self.is_rvms_active;
-                    tokio::spawn(async move {
-                        if is_active {
+            if self.is_rvms_active {
+                if theme::danger_button(ui, "Остановить RVMS", ui.available_width()).clicked() {
+                    if let Some(client) = dbus_client {
+                        let client = client.clone();
+                        let tx = self.event_tx.clone();
+                        tokio::spawn(async move {
                             match client.stop_rvms().await {
                                 Ok(_) => {
                                     let _ = tx.send(GuiEvent::RvmsStopped);
@@ -366,17 +320,23 @@ impl PreferencesState {
                                     )));
                                 }
                             }
-                        } else {
-                            match client.start_rvms().await {
-                                Ok(node_id) => {
-                                    let _ = tx.send(GuiEvent::RvmsStarted(node_id));
-                                }
-                                Err(e) => {
-                                    let _ = tx.send(GuiEvent::Error(format!(
-                                        "Ошибка запуска RVMS: {}",
-                                        e
-                                    )));
-                                }
+                        });
+                    }
+                }
+            } else if theme::accent_button(ui, "Запустить RVMS", ui.available_width()).clicked() {
+                if let Some(client) = dbus_client {
+                    let client = client.clone();
+                    let tx = self.event_tx.clone();
+                    tokio::spawn(async move {
+                        match client.start_rvms().await {
+                            Ok(node_id) => {
+                                let _ = tx.send(GuiEvent::RvmsStarted(node_id));
+                            }
+                            Err(e) => {
+                                let _ = tx.send(GuiEvent::Error(format!(
+                                    "Ошибка запуска RVMS: {}",
+                                    e
+                                )));
                             }
                         }
                     });
@@ -390,17 +350,24 @@ impl PreferencesState {
         // Вывод системных сообщений / уведомлений
         let mut clear_message = false;
         if let Some((msg, is_error)) = &self.status_message {
-            let color = if *is_error {
-                Color32::from_rgb(239, 68, 68)
-            } else {
-                Color32::from_rgb(16, 185, 129)
-            };
+            let is_err = *is_error;
             let msg_clone = msg.clone();
-            ui.group(|ui| {
+            theme::notification_frame(is_err).show(ui, |ui| {
                 ui.horizontal(|ui| {
+                    let color = if is_err { theme::RED } else { theme::GREEN };
                     ui.label(RichText::new(msg_clone).color(color).strong());
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui.button("x").clicked() {
+                        if ui
+                            .add(
+                                egui::Button::new(
+                                    RichText::new("\u{2715}")
+                                        .size(11.0)
+                                        .color(theme::TEXT_SECONDARY),
+                                )
+                                .frame(false),
+                            )
+                            .clicked()
+                        {
                             clear_message = true;
                         }
                     });
@@ -414,7 +381,10 @@ impl PreferencesState {
 
         let Some(ref mut profile) = self.edit_profile else {
             ui.centered_and_justified(|ui| {
-                ui.label("Выберите профиль слева или создайте новый для начала работы.");
+                ui.label(
+                    RichText::new("Выберите профиль слева или создайте новый.")
+                        .color(theme::TEXT_MUTED),
+                );
             });
             return;
         };
@@ -428,218 +398,176 @@ impl PreferencesState {
         let event_tx = self.event_tx.clone();
 
         egui::ScrollArea::vertical().show(ui, |ui| {
-            ui.heading(format!("Редактирование профиля: {}", profile.id));
-            ui.add_space(8.0);
-
-            // Имя профиля
-            ui.horizontal(|ui| {
-                ui.label("Имя профиля:");
-                ui.text_edit_singleline(&mut profile.name);
-            });
-
-            ui.add_space(10.0);
-
-            // Системный промпт LLM
-            ui.label(RichText::new("Системный промпт ассистента:").strong());
-            ui.add(
-                egui::TextEdit::multiline(&mut profile.system_prompt)
-                    .hint_text("Ты senior-ментор...")
-                    .desired_rows(4)
-                    .desired_width(ui.available_width() - 10.0),
+            // Заголовок профиля
+            ui.label(
+                RichText::new(format!("Профиль: {}", profile.id))
+                    .strong()
+                    .size(16.0)
+                    .color(theme::TEXT_PRIMARY),
             );
+            ui.add_space(12.0);
 
-            ui.add_space(10.0);
+            // ── Основное ──
+            theme::section_frame().show(ui, |ui| {
+                theme::section_title(ui, "Основные настройки");
+                theme::form_row(ui, "Имя профиля:", &mut profile.name);
+                ui.add_space(6.0);
 
-            // Путь к файлу резюме
-            ui.label(RichText::new("Резюме кандидата (CV):").strong());
-            ui.horizontal(|ui| {
-                ui.text_edit_singleline(&mut profile.cv_path);
-
-                // Простая валидация пути
-                let path_exists =
-                    std::path::Path::new(&profile.cv_path).exists() && !profile.cv_path.is_empty();
-                if path_exists {
-                    ui.label(RichText::new("[OK]").color(Color32::GREEN));
-                } else if !profile.cv_path.is_empty() {
-                    ui.label(RichText::new("[ERR]").color(Color32::RED));
-                }
+                ui.label(RichText::new("Системный промпт:").color(theme::TEXT_SECONDARY));
+                ui.add(
+                    egui::TextEdit::multiline(&mut profile.system_prompt)
+                        .hint_text("Ты senior-ментор...")
+                        .desired_rows(4)
+                        .desired_width(ui.available_width()),
+                );
             });
 
-            if !profile.cv_text.is_empty() {
-                ui.collapsing(
-                    "Показать спарсенный текст резюме",
-                    |ui| {
-                        let preview: String = profile.cv_text.chars().take(200).collect();
-                        ui.group(|ui| {
-                            ui.label(format!("{}...", preview));
-                        });
-                    },
-                );
-            }
-
             ui.add_space(10.0);
 
-            // Путь к файлу вакансии
-            ui.label(RichText::new("Описание вакансии (Vacancy):").strong());
-            ui.horizontal(|ui| {
-                ui.text_edit_singleline(&mut profile.vacancy_path);
-
-                let path_exists = std::path::Path::new(&profile.vacancy_path).exists()
-                    && !profile.vacancy_path.is_empty();
-                if path_exists {
-                    ui.label(RichText::new("[OK]").color(Color32::GREEN));
-                } else if !profile.vacancy_path.is_empty() {
-                    ui.label(RichText::new("[ERR]").color(Color32::RED));
-                }
-            });
-
-            if !profile.vacancy_text.is_empty() {
-                ui.collapsing(
-                    "Показать спарсенный текст вакансии",
-                    |ui| {
-                        let preview: String = profile.vacancy_text.chars().take(200).collect();
-                        ui.group(|ui| {
-                            ui.label(format!("{}...", preview));
-                        });
-                    },
-                );
-            }
-
-            ui.add_space(10.0);
-
-            // Факты о кандидате
-            ui.label(RichText::new("Факты о кандидате (достижения, проекты):").strong());
-            ui.add(
-                egui::TextEdit::multiline(&mut profile.facts)
-                    .hint_text("Знает Rust 3 года...")
-                    .desired_rows(3)
-                    .desired_width(ui.available_width() - 10.0),
-            );
-
-            ui.add_space(10.0);
-
-            // Настройки LLM
-            ui.group(|ui| {
-                ui.label(RichText::new("Настройки LLM (Генератор ответов)").strong());
+            // ── Документы ──
+            theme::section_frame().show(ui, |ui| {
+                theme::section_title(ui, "Документы кандидата");
 
                 ui.horizontal(|ui| {
-                    ui.label("Провайдер:");
+                    ui.add_sized(
+                        [120.0, 20.0],
+                        egui::Label::new(
+                            RichText::new("Резюме (CV):").color(theme::TEXT_SECONDARY),
+                        ),
+                    );
+                    ui.add(
+                        egui::TextEdit::singleline(&mut profile.cv_path)
+                            .desired_width(ui.available_width() - 40.0),
+                    );
+                    let ok = std::path::Path::new(&profile.cv_path).exists()
+                        && !profile.cv_path.is_empty();
+                    if !profile.cv_path.is_empty() {
+                        let (color, icon) = if ok {
+                            (theme::GREEN, "\u{2713}")
+                        } else {
+                            (theme::RED, "\u{2717}")
+                        };
+                        ui.label(RichText::new(icon).color(color));
+                    }
+                });
+
+                if !profile.cv_text.is_empty() {
+                    ui.collapsing("Спарсенный текст резюме", |ui| {
+                        let preview: String = profile.cv_text.chars().take(200).collect();
+                        ui.label(
+                            RichText::new(format!("{}...", preview))
+                                .size(11.0)
+                                .color(theme::TEXT_MUTED),
+                        );
+                    });
+                }
+
+                ui.add_space(6.0);
+
+                ui.horizontal(|ui| {
+                    ui.add_sized(
+                        [120.0, 20.0],
+                        egui::Label::new(
+                            RichText::new("Вакансия:").color(theme::TEXT_SECONDARY),
+                        ),
+                    );
+                    ui.add(
+                        egui::TextEdit::singleline(&mut profile.vacancy_path)
+                            .desired_width(ui.available_width() - 40.0),
+                    );
+                    let ok = std::path::Path::new(&profile.vacancy_path).exists()
+                        && !profile.vacancy_path.is_empty();
+                    if !profile.vacancy_path.is_empty() {
+                        let (color, icon) = if ok {
+                            (theme::GREEN, "\u{2713}")
+                        } else {
+                            (theme::RED, "\u{2717}")
+                        };
+                        ui.label(RichText::new(icon).color(color));
+                    }
+                });
+
+                if !profile.vacancy_text.is_empty() {
+                    ui.collapsing("Спарсенный текст вакансии", |ui| {
+                        let preview: String = profile.vacancy_text.chars().take(200).collect();
+                        ui.label(
+                            RichText::new(format!("{}...", preview))
+                                .size(11.0)
+                                .color(theme::TEXT_MUTED),
+                        );
+                    });
+                }
+
+                ui.add_space(6.0);
+
+                ui.label(RichText::new("Факты о кандидате:").color(theme::TEXT_SECONDARY));
+                ui.add(
+                    egui::TextEdit::multiline(&mut profile.facts)
+                        .hint_text("Знает Rust 3 года...")
+                        .desired_rows(3)
+                        .desired_width(ui.available_width()),
+                );
+            });
+
+            ui.add_space(10.0);
+
+            // ── Настройки LLM ──
+            theme::section_frame().show(ui, |ui| {
+                theme::section_title(ui, "LLM (Генератор ответов)");
+
+                ui.horizontal(|ui| {
+                    ui.add_sized([120.0, 20.0], egui::Label::new(RichText::new("Провайдер:").color(theme::TEXT_SECONDARY)));
                     egui::ComboBox::from_id_salt("llm_provider")
                         .selected_text(&profile.llm.provider)
                         .show_ui(ui, |ui| {
-                            ui.selectable_value(
-                                &mut profile.llm.provider,
-                                "openai_compat".to_string(),
-                                "OpenAI Compatible",
-                            );
-                            ui.selectable_value(
-                                &mut profile.llm.provider,
-                                "openai".to_string(),
-                                "OpenAI (Official)",
-                            );
-                            ui.selectable_value(
-                                &mut profile.llm.provider,
-                                "anthropic".to_string(),
-                                "Anthropic (Claude)",
-                            );
+                            ui.selectable_value(&mut profile.llm.provider, "openai_compat".to_string(), "OpenAI Compatible");
+                            ui.selectable_value(&mut profile.llm.provider, "openai".to_string(), "OpenAI (Official)");
+                            ui.selectable_value(&mut profile.llm.provider, "anthropic".to_string(), "Anthropic (Claude)");
                         });
                 });
+                theme::form_row(ui, "Модель:", &mut profile.llm.model);
+                theme::form_row(ui, "Базовый URL:", &mut profile.llm.base_url);
+                theme::form_password_row(ui, "API ключ:", llm_key_input, show_llm_key);
 
+                ui.add_space(4.0);
                 ui.horizontal(|ui| {
-                    ui.label("Модель LLM:");
-                    ui.text_edit_singleline(&mut profile.llm.model);
-                });
-
-                ui.horizontal(|ui| {
-                    ui.label("Базовый URL:");
-                    ui.text_edit_singleline(&mut profile.llm.base_url);
-                });
-
-                // API ключ LLM
-                ui.horizontal(|ui| {
-                    ui.label("API ключ LLM:");
-                    ui.add(egui::TextEdit::singleline(llm_key_input).password(!*show_llm_key));
-                    if ui
-                        .button(if *show_llm_key {
-                            "Скрыть"
-                        } else {
-                            "Показать"
-                        })
-                        .clicked()
-                    {
-                        *show_llm_key = !*show_llm_key;
-                    }
-                });
-
-                ui.horizontal(|ui| {
-                    ui.label("Температура:");
-                    ui.add(egui::Slider::new(&mut profile.llm.temperature, 0.0..=2.0).step_by(0.1));
+                    ui.add_sized(
+                        [120.0, 20.0],
+                        egui::Label::new(
+                            RichText::new("Температура:").color(theme::TEXT_SECONDARY),
+                        ),
+                    );
+                    ui.add(
+                        egui::Slider::new(&mut profile.llm.temperature, 0.0..=2.0).step_by(0.1),
+                    );
                 });
             });
 
             ui.add_space(10.0);
 
-            // Настройки ASR
-            ui.group(|ui| {
-                ui.label(RichText::new("Настройки ASR (Голосовой ввод)").strong());
+            // ── Настройки ASR ──
+            theme::section_frame().show(ui, |ui| {
+                theme::section_title(ui, "ASR (Голосовой ввод)");
 
                 ui.horizontal(|ui| {
-                    ui.label("Провайдер:");
+                    ui.add_sized([120.0, 20.0], egui::Label::new(RichText::new("Провайдер:").color(theme::TEXT_SECONDARY)));
                     egui::ComboBox::from_id_salt("asr_provider")
                         .selected_text(&profile.asr.provider)
                         .show_ui(ui, |ui| {
-                            ui.selectable_value(
-                                &mut profile.asr.provider,
-                                "openai_compat".to_string(),
-                                "OpenAI Compatible",
-                            );
-                            ui.selectable_value(
-                                &mut profile.asr.provider,
-                                "openai".to_string(),
-                                "OpenAI Whisper",
-                            );
+                            ui.selectable_value(&mut profile.asr.provider, "openai_compat".to_string(), "OpenAI Compatible");
+                            ui.selectable_value(&mut profile.asr.provider, "openai".to_string(), "OpenAI Whisper");
                         });
                 });
-
-                ui.horizontal(|ui| {
-                    ui.label("Модель ASR:");
-                    ui.text_edit_singleline(&mut profile.asr.model);
-                });
-
-                ui.horizontal(|ui| {
-                    ui.label("Базовый URL:");
-                    ui.text_edit_singleline(&mut profile.asr.base_url);
-                });
-
-                // API ключ ASR
-                ui.horizontal(|ui| {
-                    ui.label("API ключ ASR:");
-                    ui.add(egui::TextEdit::singleline(asr_key_input).password(!*show_asr_key));
-                    if ui
-                        .button(if *show_asr_key {
-                            "Скрыть"
-                        } else {
-                            "Показать"
-                        })
-                        .clicked()
-                    {
-                        *show_asr_key = !*show_asr_key;
-                    }
-                });
+                theme::form_row(ui, "Модель:", &mut profile.asr.model);
+                theme::form_row(ui, "Базовый URL:", &mut profile.asr.base_url);
+                theme::form_password_row(ui, "API ключ:", asr_key_input, show_asr_key);
             });
 
-            ui.add_space(15.0);
+            ui.add_space(16.0);
 
-            // Ряд кнопок управления
+            // ── Кнопки действий ──
             ui.horizontal(|ui| {
-                // Кнопка Сохранить
-                let save_btn = ui.add_sized(
-                    [100.0, 36.0],
-                    egui::Button::new(RichText::new("Сохранить").strong().color(Color32::WHITE))
-                        .fill(Color32::from_rgb(79, 70, 229)),
-                );
-
-                if save_btn.clicked() {
+                if theme::accent_button(ui, "Сохранить", 110.0).clicked() {
                     Self::save_profile_static(
                         profile,
                         llm_key_input.clone(),
@@ -651,24 +579,21 @@ impl PreferencesState {
 
                 ui.add_space(6.0);
 
-                // Кнопка Сделать активным
                 let is_active = Some(profile.id.clone()) == *active_id;
-                let active_btn = ui.add_enabled(
+                let activate_text = if is_active { "Активен" } else { "Использовать" };
+                let activate_btn = ui.add_enabled(
                     !is_active,
                     egui::Button::new(
-                        RichText::new(if is_active {
-                            "[Активен]"
-                        } else {
-                            "Использовать"
-                        })
-                        .strong()
-                        .color(Color32::WHITE),
+                        RichText::new(activate_text)
+                            .strong()
+                            .color(theme::TEXT_PRIMARY),
                     )
-                    .fill(Color32::from_rgb(16, 185, 129))
-                    .min_size(Vec2::new(130.0, 36.0)),
+                    .fill(theme::GREEN)
+                    .corner_radius(6.0)
+                    .min_size(Vec2::new(120.0, 34.0)),
                 );
 
-                if active_btn.clicked() {
+                if activate_btn.clicked() {
                     if let Some(client) = dbus_client {
                         let client = client.clone();
                         let tx = event_tx.clone();
@@ -676,7 +601,6 @@ impl PreferencesState {
                         tokio::spawn(async move {
                             match client.set_active_profile(&profile_id).await {
                                 Ok(_) => {
-                                    // Перезапрашиваем активный профиль
                                     if let Ok(active) = client.get_active_profile().await {
                                         let _ = tx.send(GuiEvent::ActiveProfileLoaded(active));
                                     }
@@ -693,20 +617,12 @@ impl PreferencesState {
                 }
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    // Кнопка Удалить
-                    let delete_btn = ui.add_sized(
-                        [100.0, 36.0],
-                        egui::Button::new(RichText::new("Удалить").strong().color(Color32::WHITE))
-                            .fill(Color32::from_rgb(220, 38, 38)),
-                    );
-
-                    if delete_btn.clicked() {
+                    if theme::danger_button(ui, "Удалить", 100.0).clicked() {
                         if let Some(client) = dbus_client {
                             let client = client.clone();
                             let tx = event_tx.clone();
                             let profile_id = profile.id.clone();
                             tokio::spawn(async move {
-                                // Удаляем пароли из Keyring
                                 let llm_key_name = format!("llm_api_key_{}", profile_id);
                                 let asr_key_name = format!("asr_api_key_{}", profile_id);
                                 let _ = KeyringStore::delete_password(&llm_key_name).await;
@@ -728,6 +644,7 @@ impl PreferencesState {
                     }
                 });
             });
+
             ui.add_space(20.0);
         });
     }
