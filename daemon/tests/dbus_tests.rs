@@ -35,11 +35,12 @@ async fn test_dbus_stubs() {
         .await
         .expect("Не удалось создать подключение");
 
-    // Инициализируем менеджеров
-    let profile_manager = ProfileManager::new();
+    // Инициализируем менеджеры
+    let config = izighost_daemon::config::DaemonConfig::default();
+    let profile_manager = ProfileManager::new(&config);
     let context_store = ContextStore::new();
     let rvms_manager = RvmsManager::new();
-    let interface = DaemonInterface::new(profile_manager, context_store, rvms_manager);
+    let interface = DaemonInterface::new(profile_manager, context_store, rvms_manager, config);
 
     // Запускаем сервер на уникальном временном имени/пути, чтобы не конфликтовать с основным демоном
     let object_path = "/com/izighost/DaemonTest";

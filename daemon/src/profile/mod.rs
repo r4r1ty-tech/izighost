@@ -1,6 +1,6 @@
 pub mod parser;
 
-use crate::config::resolve_path;
+use crate::config::{resolve_path, DaemonConfig};
 use izighost_common::{IziError, Profile};
 use std::fs;
 use std::path::PathBuf;
@@ -11,13 +11,13 @@ pub struct ProfileManager {
 
 impl Default for ProfileManager {
     fn default() -> Self {
-        Self::new()
+        Self::new(&DaemonConfig::default())
     }
 }
 
 impl ProfileManager {
-    pub fn new() -> Self {
-        let profiles_dir = resolve_path("~/.config/izighost/profiles");
+    pub fn new(config: &DaemonConfig) -> Self {
+        let profiles_dir = resolve_path(&config.general.data_dir).join("profiles");
         Self { profiles_dir }
     }
 

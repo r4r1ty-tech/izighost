@@ -1,3 +1,4 @@
+use crate::config::DaemonConfig;
 use crate::context_store::ContextStore;
 use crate::profile::ProfileManager;
 use crate::rvms::RvmsManager;
@@ -8,6 +9,7 @@ pub struct DaemonInterface {
     profile_manager: ProfileManager,
     context_store: ContextStore,
     rvms_manager: RvmsManager,
+    _config: DaemonConfig,
     recording_state: tokio::sync::Mutex<Option<(std::process::Child, std::path::PathBuf)>>,
 }
 
@@ -16,11 +18,13 @@ impl DaemonInterface {
         profile_manager: ProfileManager,
         context_store: ContextStore,
         rvms_manager: RvmsManager,
+        config: DaemonConfig,
     ) -> Self {
         Self {
             profile_manager,
             context_store,
             rvms_manager,
+            _config: config,
             recording_state: tokio::sync::Mutex::new(None),
         }
     }
