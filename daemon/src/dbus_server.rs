@@ -41,18 +41,18 @@ impl DaemonInterface {
         if let Some((mut child, path)) = state.take() {
             tracing::info!("Остановка фонового процесса записи звука...");
             if let Some(pid) = child.id() {
-                match child.try_wait() {
-                    Ok(None) => {
-                        // SAFETY: Мы отправляем сигнал SIGINT нашему активному дочернему процессу gst-launch-1.0.
-                        // Перед отправкой проверяем статус с помощью try_wait(), чтобы избежать гонки PID.
-                        unsafe {
-                            libc::kill(pid as libc::pid_t, libc::SIGINT);
-                        }
-                        if let Err(e) = child.wait().await {
-                            tracing::error!("Ошибка при ожидании завершения процесса записи звука: {:?}", e);
-                        }
+                if let Ok(None) = child.try_wait() {
+                    // SAFETY: Мы отправляем сигнал SIGINT нашему активному дочернему процессу gst-launch-1.0.
+                    // Перед отправкой проверяем статус с помощью try_wait(), чтобы избежать гонки PID.
+                    unsafe {
+                        libc::kill(pid as libc::pid_t, libc::SIGINT);
                     }
-                    _ => {}
+                    if let Err(e) = child.wait().await {
+                        tracing::error!(
+                            "Ошибка при ожидании завершения процесса записи звука: {:?}",
+                            e
+                        );
+                    }
                 }
             }
             if let Err(e) = tokio::fs::remove_file(&path).await {
@@ -69,12 +69,16 @@ impl DaemonInterface {
     /// Запустить виртуальный экран RVMS. Возвращает ID PipeWire источника для трансляции.
     async fn start_rvms(&self) -> zbus::fdo::Result<u32> {
         tracing::info!("D-Bus: Запрос на запуск виртуального экрана (start_rvms)...");
-        let res = self.rvms_manager
+        let res = self
+            .rvms_manager
             .start()
             .await
             .map_err(zbus::fdo::Error::Failed);
         match &res {
-            Ok(node_id) => tracing::info!("D-Bus: Виртуальный экран успешно запущен (PipeWire ID: {})", node_id),
+            Ok(node_id) => tracing::info!(
+                "D-Bus: Виртуальный экран успешно запущен (PipeWire ID: {})",
+                node_id
+            ),
             Err(e) => tracing::error!("D-Bus: Ошибка запуска виртуального экрана: {:?}", e),
         }
         res
@@ -83,7 +87,8 @@ impl DaemonInterface {
     /// Остановить трансляцию виртуального экрана RVMS.
     async fn stop_rvms(&self) -> zbus::fdo::Result<()> {
         tracing::info!("D-Bus: Запрос на остановку виртуального экрана (stop_rvms)...");
-        let res = self.rvms_manager
+        let res = self
+            .rvms_manager
             .stop()
             .await
             .map_err(zbus::fdo::Error::Failed);
@@ -100,8 +105,14 @@ impl DaemonInterface {
         text: String,
         #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
     ) -> zbus::fdo::Result<()> {
-        tracing::info!("D-Bus: Получен запрос send_chat_message. Длина текста: {}", text.len());
-        let profile = self.context_store.get_active_profile().await
+        tracing::info!(
+            "D-Bus: Получен запрос send_chat_message. Длина текста: {}",
+            text.len()
+        );
+        let profile = self
+            .context_store
+            .get_active_profile()
+            .await
             .ok_or_else(|| zbus::fdo::Error::Failed("Нет активного профиля".to_string()))?;
 
         // Сохраняем сообщение пользователя в историю
@@ -123,7 +134,8 @@ impl DaemonInterface {
         let history = self.context_store.get_history().await;
 
         // Сбрасываем флаг отмены перед началом новой генерации
-        self.cancel_generation.store(false, std::sync::atomic::Ordering::SeqCst);
+        self.cancel_generation
+            .store(false, std::sync::atomic::Ordering::SeqCst);
 
         let mut full_response = String::new();
         match crate::llm::stream_chat_completion(
@@ -133,11 +145,16 @@ impl DaemonInterface {
             profile.llm.temperature,
             &history,
             &system_prompt,
-        ).await {
+        )
+        .await
+        {
             Ok(mut stream) => {
                 use futures::StreamExt;
                 while let Some(chunk_res) = stream.next().await {
-                    if self.cancel_generation.load(std::sync::atomic::Ordering::SeqCst) {
+                    if self
+                        .cancel_generation
+                        .load(std::sync::atomic::Ordering::SeqCst)
+                    {
                         tracing::info!("Генерация прервана пользователем.");
                         break;
                     }
@@ -145,14 +162,20 @@ impl DaemonInterface {
                         Ok(chunk) => {
                             full_response.push_str(&chunk);
                             if let Err(err) = Self::chat_chunk(&emitter, &chunk).await {
-                                tracing::error!("Ошибка отправки D-Bus сигнала chat_chunk: {:?}", err);
+                                tracing::error!(
+                                    "Ошибка отправки D-Bus сигнала chat_chunk: {:?}",
+                                    err
+                                );
                             }
                         }
                         Err(e) => {
                             let err_msg = format!("Ошибка во время стриминга LLM: {}", e);
                             tracing::error!("{}", err_msg);
                             if let Err(err) = Self::error_occurred(&emitter, &err_msg).await {
-                                tracing::error!("Ошибка отправки D-Bus сигнала error_occurred: {:?}", err);
+                                tracing::error!(
+                                    "Ошибка отправки D-Bus сигнала error_occurred: {:?}",
+                                    err
+                                );
                             }
                             return Err(zbus::fdo::Error::Failed(err_msg));
                         }
@@ -182,7 +205,8 @@ impl DaemonInterface {
 
     async fn cancel_generation(&self) -> zbus::fdo::Result<()> {
         tracing::info!("D-Bus: Получен запрос cancel_generation");
-        self.cancel_generation.store(true, std::sync::atomic::Ordering::SeqCst);
+        self.cancel_generation
+            .store(true, std::sync::atomic::Ordering::SeqCst);
         Ok(())
     }
 
@@ -204,9 +228,13 @@ impl DaemonInterface {
         };
 
         let profile = self.context_store.get_active_profile().await;
-        match crate::ocr::trigger_ocr_pipeline(node_id, profile, &self._config.general.cache_dir).await {
+        match crate::ocr::trigger_ocr_pipeline(node_id, profile, &self._config.general.cache_dir)
+            .await
+        {
             Ok(text) => {
-                self.context_store.set_last_preview(Some(text.clone())).await;
+                self.context_store
+                    .set_last_preview(Some(text.clone()))
+                    .await;
                 if let Err(e) = Self::ocr_completed(&emitter, &text).await {
                     tracing::error!("Ошибка отправки D-Bus сигнала ocr_completed: {:?}", e);
                 }
@@ -228,7 +256,10 @@ impl DaemonInterface {
         file_path: String,
         #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
     ) -> zbus::fdo::Result<()> {
-        tracing::info!("D-Bus: Получен запрос trigger_ocr_from_file. Файл: {}", file_path);
+        tracing::info!(
+            "D-Bus: Получен запрос trigger_ocr_from_file. Файл: {}",
+            file_path
+        );
         let path = std::path::PathBuf::from(file_path);
         if !path.exists() {
             let err_msg = "Указанный файл не существует".to_string();
@@ -241,7 +272,9 @@ impl DaemonInterface {
         let profile = self.context_store.get_active_profile().await;
         match crate::ocr::run_ocr_on_file(path, profile, &self._config.general.cache_dir).await {
             Ok(text) => {
-                self.context_store.set_last_preview(Some(text.clone())).await;
+                self.context_store
+                    .set_last_preview(Some(text.clone()))
+                    .await;
                 if let Err(e) = Self::ocr_completed(&emitter, &text).await {
                     tracing::error!("Ошибка отправки D-Bus сигнала ocr_completed: {:?}", e);
                 }
@@ -267,7 +300,10 @@ impl DaemonInterface {
         let node_id = match self.rvms_manager.get_pipewire_node_id().await {
             Some(id) => id,
             None => {
-                return Err(zbus::fdo::Error::Failed("Виртуальный экран не активен. Сначала запустите RVMS сессию в настройках.".to_string()));
+                return Err(zbus::fdo::Error::Failed(
+                    "Виртуальный экран не активен. Сначала запустите RVMS сессию в настройках."
+                        .to_string(),
+                ));
             }
         };
         match crate::ocr::capture_screenshot(node_id).await {
@@ -292,14 +328,21 @@ impl DaemonInterface {
         tracing::info!("D-Bus: Получен запрос run_ocr_on_file. Файл: {}", file_path);
         let path = std::path::PathBuf::from(file_path);
         if !path.exists() {
-            return Err(zbus::fdo::Error::Failed("Указанный файл не существует".to_string()));
+            return Err(zbus::fdo::Error::Failed(
+                "Указанный файл не существует".to_string(),
+            ));
         }
 
         let profile = self.context_store.get_active_profile().await;
         match crate::ocr::run_ocr_on_file(path, profile, &self._config.general.cache_dir).await {
             Ok(text) => {
-                self.context_store.set_last_preview(Some(text.clone())).await;
-                tracing::info!("D-Bus: OCR на файле успешно завершено. Длина текста: {}", text.len());
+                self.context_store
+                    .set_last_preview(Some(text.clone()))
+                    .await;
+                tracing::info!(
+                    "D-Bus: OCR на файле успешно завершено. Длина текста: {}",
+                    text.len()
+                );
                 Ok(text)
             }
             Err(e) => {
@@ -310,10 +353,10 @@ impl DaemonInterface {
         }
     }
 
-
     async fn start_listening(&self) -> zbus::fdo::Result<()> {
         tracing::info!("D-Bus: Получен запрос start_listening");
-        static FILE_COUNTER: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        static FILE_COUNTER: std::sync::atomic::AtomicUsize =
+            std::sync::atomic::AtomicUsize::new(0);
         let count = FILE_COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         let pid = std::process::id();
         let timestamp = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0);
@@ -333,11 +376,18 @@ impl DaemonInterface {
                     tracing::warn!("Не удалось убить зависший процесс записи звука: {:?}", e);
                 }
                 if let Err(e) = child.wait().await {
-                    tracing::warn!("Ошибка при ожидании зависшего процесса записи звука: {:?}", e);
+                    tracing::warn!(
+                        "Ошибка при ожидании зависшего процесса записи звука: {:?}",
+                        e
+                    );
                 }
                 if let Err(e) = tokio::fs::remove_file(&path).await {
                     if e.kind() != std::io::ErrorKind::NotFound {
-                        tracing::warn!("Не удалось удалить временный аудиофайл {:?}: {:?}", path, e);
+                        tracing::warn!(
+                            "Не удалось удалить временный аудиофайл {:?}: {:?}",
+                            path,
+                            e
+                        );
                     }
                 }
             }
@@ -360,7 +410,9 @@ impl DaemonInterface {
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
             .spawn()
-            .map_err(|e| zbus::fdo::Error::Failed(format!("Не удалось запустить gst-launch-1.0: {}", e)))?;
+            .map_err(|e| {
+                zbus::fdo::Error::Failed(format!("Не удалось запустить gst-launch-1.0: {}", e))
+            })?;
 
         {
             let mut state = self.recording_state.lock().await;
@@ -381,7 +433,9 @@ impl DaemonInterface {
         };
 
         let Some((mut child, path)) = recording else {
-            return Err(zbus::fdo::Error::Failed("Запись звука не запущена".to_string()));
+            return Err(zbus::fdo::Error::Failed(
+                "Запись звука не запущена".to_string(),
+            ));
         };
 
         tracing::info!("Остановка записи звука...");
@@ -391,11 +445,9 @@ impl DaemonInterface {
             // SAFETY: Мы отправляем сигнал SIGINT нашему активному дочернему процессу gst-launch-1.0.
             // Перед отправкой проверяем статус с помощью try_wait(), чтобы избежать гонки PID.
             match child.try_wait() {
-                Ok(None) => {
-                    unsafe {
-                        libc::kill(pid as libc::pid_t, libc::SIGINT);
-                    }
-                }
+                Ok(None) => unsafe {
+                    libc::kill(pid as libc::pid_t, libc::SIGINT);
+                },
                 Ok(Some(_status)) => {
                     tracing::info!("Запись звука gst-launch уже завершилась");
                 }
@@ -407,12 +459,15 @@ impl DaemonInterface {
 
         // Ожидаем завершения процесса асинхронно
         if let Err(e) = child.wait().await {
-            tracing::error!("Ошибка при ожидании завершения процесса записи звука в stop_listening: {:?}", e);
+            tracing::error!(
+                "Ошибка при ожидании завершения процесса записи звука в stop_listening: {:?}",
+                e
+            );
         }
 
         // Загружаем профиль и API-ключ для распознавания
         let profile = self.context_store.get_active_profile().await;
-        
+
         let api_key = if let Some(ref p) = profile {
             if !p.id.is_empty() {
                 izighost_common::KeyringStore::get_password(&format!("asr_api_key_{}", p.id))
@@ -433,8 +488,9 @@ impl DaemonInterface {
 
         tokio::spawn(async move {
             let path_clone = path.clone();
-            let result = crate::audio::transcribe_audio(&path_clone, profile.as_ref(), &api_key).await;
-            
+            let result =
+                crate::audio::transcribe_audio(&path_clone, profile.as_ref(), &api_key).await;
+
             if let Err(e) = tokio::fs::remove_file(&path).await {
                 if e.kind() != std::io::ErrorKind::NotFound {
                     tracing::warn!("Не удалось удалить временный аудиофайл {:?}: {:?}", path, e);
@@ -544,5 +600,8 @@ impl DaemonInterface {
     pub async fn error_occurred(emitter: &SignalEmitter<'_>, message: &str) -> zbus::Result<()>;
 
     #[zbus(signal)]
-    pub async fn screenshot_captured(emitter: &SignalEmitter<'_>, filepath: &str) -> zbus::Result<()>;
+    pub async fn screenshot_captured(
+        emitter: &SignalEmitter<'_>,
+        filepath: &str,
+    ) -> zbus::Result<()>;
 }
