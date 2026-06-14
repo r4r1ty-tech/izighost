@@ -1,12 +1,12 @@
+pub mod audio;
 pub mod config;
 pub mod context_store;
 pub mod dbus_server;
+pub mod llm;
 pub mod ocr;
 pub mod profile;
 pub mod prompt_assembler;
 pub mod rvms;
-pub mod audio;
-pub mod llm;
 
 use std::sync::OnceLock;
 

@@ -1,10 +1,10 @@
 use clap::Parser;
-use std::path::PathBuf;
 use izighost_daemon::config::DaemonConfig;
 use izighost_daemon::context_store::ContextStore;
 use izighost_daemon::dbus_server::DaemonInterface;
 use izighost_daemon::profile::ProfileManager;
 use izighost_daemon::rvms::RvmsManager;
+use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about = "IziGhost Daemon - Desktop Assistant", long_about = None)]
@@ -26,7 +26,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config = match DaemonConfig::load(args.config) {
         Ok(cfg) => cfg,
         Err(e) => {
-            eprintln!("Предупреждение: Не удалось загрузить конфигурацию daemon.yaml. Ошибка: {}", e);
+            eprintln!(
+                "Предупреждение: Не удалось загрузить конфигурацию daemon.yaml. Ошибка: {}",
+                e
+            );
             DaemonConfig::default()
         }
     };
@@ -50,8 +53,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let file_appender = tracing_appender::rolling::daily(&logs_dir, "izighost-daemon.log");
     let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
 
-    let console_layer = tracing_subscriber::fmt::layer()
-        .with_writer(std::io::stderr);
+    let console_layer = tracing_subscriber::fmt::layer().with_writer(std::io::stderr);
     let file_layer = tracing_subscriber::fmt::layer()
         .with_writer(non_blocking)
         .with_ansi(false);
@@ -106,7 +108,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Вызываем Graceful Shutdown интерфейса
     let object_server = _conn.object_server();
-    if let Ok(interface_ref) = object_server.interface::<_, DaemonInterface>(izighost_common::dbus::DBUS_OBJECT_PATH).await {
+    if let Ok(interface_ref) = object_server
+        .interface::<_, DaemonInterface>(izighost_common::dbus::DBUS_OBJECT_PATH)
+        .await
+    {
         interface_ref.get().await.shutdown().await;
     }
 

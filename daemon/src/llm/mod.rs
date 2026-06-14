@@ -1,8 +1,8 @@
+use crate::context_store::ChatMessage;
 use anyhow::Result;
 use futures::{Stream, StreamExt};
 use serde_json::Value;
 use std::pin::Pin;
-use crate::context_store::ChatMessage;
 
 pub async fn stream_chat_completion(
     base_url: &str,
@@ -15,12 +15,10 @@ pub async fn stream_chat_completion(
     let client = crate::get_http_client();
     let url = format!("{}/chat/completions", base_url.trim_end_matches('/'));
 
-    let mut messages = vec![
-        serde_json::json!({
-            "role": "system",
-            "content": system_prompt
-        })
-    ];
+    let mut messages = vec![serde_json::json!({
+        "role": "system",
+        "content": system_prompt
+    })];
     for msg in history {
         messages.push(serde_json::json!({
             "role": msg.role,
@@ -78,8 +76,7 @@ pub async fn stream_chat_completion(
                     continue;
                 }
 
-                if line.starts_with("data: ") {
-                    let data = &line["data: ".len()..];
+                if let Some(data) = line.strip_prefix("data: ") {
                     if data == "[DONE]" {
                         state.done = true;
                         return Some((Ok("".to_string()), state));

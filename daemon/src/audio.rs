@@ -1,6 +1,6 @@
-use std::path::Path;
 use reqwest::multipart;
 use serde_json::Value;
+use std::path::Path;
 
 pub async fn transcribe_audio(
     wav_path: &Path,
@@ -69,8 +69,8 @@ async fn run_whisper_api(
 async fn run_local_asr_fallback(wav_path: &Path) -> Result<String, anyhow::Error> {
     tracing::info!("Запуск локального ASR-отката для {:?}", wav_path);
 
-    let home = std::env::var("HOME")
-        .map_err(|_| anyhow::anyhow!("Переменная HOME не определена"))?;
+    let home =
+        std::env::var("HOME").map_err(|_| anyhow::anyhow!("Переменная HOME не определена"))?;
     let cache_dir = std::path::PathBuf::from(home).join(".cache/izighost");
     tokio::fs::create_dir_all(&cache_dir).await?;
 
@@ -89,9 +89,7 @@ async fn run_local_asr_fallback(wav_path: &Path) -> Result<String, anyhow::Error
         return Err(anyhow::anyhow!("Ошибка Python скрипта ASR: {}", stderr));
     }
 
-    let text = String::from_utf8(output.stdout)?
-        .trim()
-        .to_string();
+    let text = String::from_utf8(output.stdout)?.trim().to_string();
 
     Ok(text)
 }
