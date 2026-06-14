@@ -246,6 +246,9 @@ struct IziGhostApp {
     // Состояния интерфейсов
     hud_state: HudState,
     preferences_state: PreferencesState,
+
+    show_onboarding: bool,
+    onboarding_state: window::onboarding::OnboardingState,
 }
 
 impl IziGhostApp {
@@ -282,6 +285,8 @@ impl IziGhostApp {
             gui_event_rx,
             hud_state: HudState::new(),
             preferences_state,
+            show_onboarding: false,
+            onboarding_state: window::onboarding::OnboardingState::new(),
         }
     }
 
@@ -301,6 +306,13 @@ impl IziGhostApp {
                 GuiEvent::ExtensionNotLoaded => {
                     self.hud_state.show_extension_warning = true;
                 }
+                GuiEvent::ProfilesLoaded(ref list) => {
+                    if list.is_empty() {
+                        self.show_onboarding = true;
+                    }
+                    self.preferences_state
+                        .handle_event(event.clone(), &self.dbus_client);
+                }
                 other => {
                     self.preferences_state
                         .handle_event(other, &self.dbus_client);
@@ -318,10 +330,24 @@ impl eframe::App for IziGhostApp {
 
         // 1. Отрисовка HUD в главном прозрачном окне
         egui::CentralPanel::default()
-            .frame(egui::Frame::NONE.fill(Color32::TRANSPARENT))
+            .frame(egui::Frame::NONE.fill(if self.show_onboarding { window::theme::BG_PRIMARY } else { Color32::TRANSPARENT }))
             .show_inside(ui, |ui| {
-                self.hud_state
-                    .draw(ui, &self.dbus_client, &self.preferences_state.active_id);
+                if self.show_onboarding {
+                    let mut show_onb = self.show_onboarding;
+                    let event_tx = self.gui_event_tx.clone();
+                    self.onboarding_state.draw(
+                        ui,
+                        &self.dbus_client,
+                        event_tx,
+                        &mut || {
+                            show_onb = false;
+                        }
+                    );
+                    self.show_onboarding = show_onb;
+                } else {
+                    self.hud_state
+                        .draw(ui, &self.dbus_client, &self.preferences_state.active_id);
+                }
             });
 
         // 2. Отрисовка дополнительного окна настроек (если флаг активен)
