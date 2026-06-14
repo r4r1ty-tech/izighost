@@ -38,10 +38,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         &config.general.log_level
     };
 
+    use tracing_subscriber::prelude::*;
+
     let filter = tracing_subscriber::EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(log_level));
-    tracing_subscriber::fmt()
-        .with_env_filter(filter)
+
+    let cache_dir = izighost_daemon::config::resolve_path(&config.general.cache_dir);
+    let logs_dir = cache_dir.join("logs");
+    let _ = std::fs::create_dir_all(&logs_dir);
+
+    let file_appender = tracing_appender::rolling::daily(&logs_dir, "izighost-daemon.log");
+    let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
+
+    let console_layer = tracing_subscriber::fmt::layer()
+        .with_writer(std::io::stderr);
+    let file_layer = tracing_subscriber::fmt::layer()
+        .with_writer(non_blocking)
+        .with_ansi(false);
+
+    tracing_subscriber::registry()
+        .with(filter)
+        .with(console_layer)
+        .with(file_layer)
         .init();
 
     tracing::info!("Запуск демона IziGhost...");

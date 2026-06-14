@@ -15,6 +15,7 @@ reqwest.workspace = true
 futures.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
+tracing-appender.workspace = true
 anyhow.workspace = true
 thiserror.workspace = true
 chrono.workspace = true
@@ -24,4 +25,7 @@ image.workspace = true
 clap.workspace = true
 base64 = "0.22"
 libc = "0.2"
+sha2 = "0.10"
+aes = "0.8"
+cbc = "0.1"
 

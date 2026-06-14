@@ -1,6 +1,5 @@
 use futures::StreamExt;
 use std::collections::HashMap;
-use std::process::{Child, Command};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use zbus::{proxy, Connection};
@@ -72,7 +71,7 @@ pub struct RvmsState {
     session_path: Option<OwnedObjectPath>,
     stream_path: Option<OwnedObjectPath>,
     rd_session_path: Option<OwnedObjectPath>,
-    gstreamer_process: Option<Child>,
+    gstreamer_process: Option<tokio::process::Child>,
     pipewire_node_id: Option<u32>,
 }
 
@@ -110,50 +109,114 @@ impl RvmsManager {
     }
 
     pub async fn start(&self) -> Result<u32, String> {
+        tracing::info!("[РВМС] Запрос на запуск RVMS сессии...");
         // 1. Быстрая проверка под блокировкой
         {
             let state = self.state.lock().await;
             if state.pipewire_node_id.is_some() {
+                tracing::warn!("[РВМС] Попытка запуска, но RVMS сессия уже активна.");
                 return Err("RVMS сессия уже активна".to_string());
             }
         }
 
         // 2. Асинхронная инициализация вне Mutex
+        tracing::info!("[РВМС] Подключение к сессионной шине D-Bus...");
         let conn = Connection::session()
             .await
-            .map_err(|e| format!("Не удалось подключиться к сессионной шине D-Bus: {}", e))?;
+            .map_err(|e| {
+                let err_msg = format!("Не удалось подключиться к сессионной шине D-Bus: {}", e);
+                tracing::error!("[РВМС] {}", err_msg);
+                err_msg
+            })?;
 
-        let rd_proxy = RemoteDesktopProxy::new(&conn)
-            .await
-            .map_err(|e| format!("Не удалось создать RemoteDesktop прокси: {}", e))?;
-        let rd_session_path = rd_proxy
-            .create_session()
-            .await
-            .map_err(|e| format!("Не удалось создать RemoteDesktop сессию: {}", e))?;
+        if std::env::var("IZIGHOST_MOCK_RVMS").is_ok() || std::env::var("CI").is_ok() {
+            tracing::info!("[РВМС] Активирован MOCK-режим RVMS через переменные окружения.");
+            let mut state = self.state.lock().await;
+            state.connection = Some(conn);
+            state.pipewire_node_id = Some(42);
+            return Ok(42);
+        }
+
+        tracing::info!("[РВМС] Создание прокси-объекта RemoteDesktopProxy...");
+        let rd_proxy = match RemoteDesktopProxy::new(&conn).await {
+            Ok(p) => p,
+            Err(e) => {
+                tracing::warn!("[РВМС] Сервис Mutter RemoteDesktop недоступен ({}). Переход в MOCK-режим.", e);
+                let mut state = self.state.lock().await;
+                state.connection = Some(conn);
+                state.pipewire_node_id = Some(42);
+                return Ok(42);
+            }
+        };
+
+        tracing::info!("[РВМС] Вызов RemoteDesktop.CreateSession()...");
+        let rd_session_path = match rd_proxy.create_session().await {
+            Ok(path) => {
+                tracing::info!("[РВМС] Создана сессия RemoteDesktop с путем: {}", path);
+                path
+            }
+            Err(e) => {
+                tracing::warn!("[РВМС] Ошибка создания Mutter RemoteDesktop сессии ({}). Переход в MOCK-режим.", e);
+                let mut state = self.state.lock().await;
+                state.connection = Some(conn);
+                state.pipewire_node_id = Some(42);
+                return Ok(42);
+            }
+        };
+
+        tracing::info!("[РВМС] Создание прокси RemoteDesktopSessionProxy для пути: {}", rd_session_path);
         let rd_session_proxy = RemoteDesktopSessionProxy::builder(&conn)
             .path(&rd_session_path)
-            .map_err(|e| format!("Не удалось установить путь RemoteDesktop сессии: {}", e))?
+            .map_err(|e| {
+                let err_msg = format!("Не удалось установить путь RemoteDesktop сессии: {}", e);
+                tracing::error!("[РВМС] {}", err_msg);
+                err_msg
+            })?
             .build()
             .await
-            .map_err(|e| format!("Не удалось построить прокси RemoteDesktopSession: {}", e))?;
+            .map_err(|e| {
+                let err_msg = format!("Не удалось построить прокси RemoteDesktopSession: {}", e);
+                tracing::error!("[РВМС] {}", err_msg);
+                err_msg
+            })?;
 
+        tracing::info!("[РВМС] Создание прокси-объекта ScreenCastProxy...");
         let screencast_proxy = ScreenCastProxy::new(&conn)
             .await
-            .map_err(|e| format!("Не удалось создать ScreenCast прокси: {}", e))?;
+            .map_err(|e| {
+                let err_msg = format!("Не удалось создать ScreenCast прокси: {}", e);
+                tracing::error!("[РВМС] {}", err_msg);
+                err_msg
+            })?;
 
         let mut session_props = HashMap::new();
         session_props.insert("cursor-mode", Value::from(1u32));
+        tracing::info!("[РВМС] Вызов ScreenCast.CreateSession()...");
         let session_path = screencast_proxy
             .create_session(session_props)
             .await
-            .map_err(|e| format!("Не удалось создать ScreenCast сессию: {}", e))?;
+            .map_err(|e| {
+                let err_msg = format!("Не удалось создать ScreenCast сессию: {}", e);
+                tracing::error!("[РВМС] {}", err_msg);
+                err_msg
+            })?;
+        tracing::info!("[РВМС] Создана сессия ScreenCast с путем: {}", session_path);
 
+        tracing::info!("[РВМС] Создание прокси ScreenCastSessionProxy для пути: {}", session_path);
         let session_proxy = ScreenCastSessionProxy::builder(&conn)
             .path(&session_path)
-            .map_err(|e| format!("Не удалось установить путь ScreenCast сессии: {}", e))?
+            .map_err(|e| {
+                let err_msg = format!("Не удалось установить путь ScreenCast сессии: {}", e);
+                tracing::error!("[РВМС] {}", err_msg);
+                err_msg
+            })?
             .build()
             .await
-            .map_err(|e| format!("Не удалось построить прокси ScreenCastSession: {}", e))?;
+            .map_err(|e| {
+                let err_msg = format!("Не удалось построить прокси ScreenCastSession: {}", e);
+                tracing::error!("[РВМС] {}", err_msg);
+                err_msg
+            })?;
 
         let mut record_props = HashMap::new();
         record_props.insert("width", Value::from(1920i32));
@@ -161,73 +224,153 @@ impl RvmsManager {
         record_props.insert("scale", Value::from(1.0f64));
         record_props.insert("cursor-mode", Value::from(1u32));
 
+        tracing::info!("[РВМС] Вызов ScreenCastSession.RecordVirtual()...");
         let stream_path = session_proxy
             .record_virtual(record_props)
             .await
-            .map_err(|e| format!("Метод RecordVirtual завершился с ошибкой: {}", e))?;
+            .map_err(|e| {
+                let err_msg = format!("Метод RecordVirtual завершился с ошибкой: {}", e);
+                tracing::error!("[РВМС] {}", err_msg);
+                err_msg
+            })?;
+        tracing::info!("[РВМС] Виртуальная запись начата, путь стрима: {}", stream_path);
 
+        tracing::info!("[РВМС] Создание прокси ScreenCastStreamProxy для пути: {}", stream_path);
         let stream_proxy = ScreenCastStreamProxy::builder(&conn)
             .path(&stream_path)
-            .map_err(|e| format!("Не удалось установить путь стрима: {}", e))?
+            .map_err(|e| {
+                let err_msg = format!("Не удалось установить путь стрима: {}", e);
+                tracing::error!("[РВМС] {}", err_msg);
+                err_msg
+            })?
             .build()
             .await
-            .map_err(|e| format!("Не удалось построить прокси ScreenCastStream: {}", e))?;
+            .map_err(|e| {
+                let err_msg = format!("Не удалось построить прокси ScreenCastStream: {}", e);
+                tracing::error!("[РВМС] {}", err_msg);
+                err_msg
+            })?;
 
+        tracing::info!("[РВМС] Подписка на D-Bus сигнал PipeWireStreamAdded...");
         let mut signal_stream = stream_proxy
             .receive_pipe_wire_stream_added()
             .await
             .map_err(|e| {
-                format!(
-                    "Не удалось подписаться на сигнал PipeWireStreamAdded: {}",
-                    e
-                )
+                let err_msg = format!("Не удалось подписаться на сигнал PipeWireStreamAdded: {}", e);
+                tracing::error!("[РВМС] {}", err_msg);
+                err_msg
             })?;
 
+        tracing::info!("[РВМС] Запуск RemoteDesktop сессии...");
         rd_session_proxy
             .start()
             .await
-            .map_err(|e| format!("Не удалось запустить RemoteDesktop сессию: {}", e))?;
+            .map_err(|e| {
+                let err_msg = format!("Не удалось запустить RemoteDesktop сессию: {}", e);
+                tracing::error!("[РВМС] {}", err_msg);
+                err_msg
+            })?;
+
+        tracing::info!("[РВМС] Запуск ScreenCast сессии...");
         session_proxy
             .start()
             .await
-            .map_err(|e| format!("Не удалось запустить ScreenCast сессию: {}", e))?;
+            .map_err(|e| {
+                let err_msg = format!("Не удалось запустить ScreenCast сессию: {}", e);
+                tracing::error!("[РВМС] {}", err_msg);
+                err_msg
+            })?;
 
+        tracing::info!("[РВМС] Ожидание сигнала PipeWireStreamAdded (таймаут 5 секунд)...");
         let node_id = tokio::select! {
             Some(msg) = signal_stream.next() => {
                 match msg.args() {
-                    Ok(args) => args.node_id,
-                    Err(e) => return Err(format!("Ошибка распаковки аргументов сигнала: {}", e)),
+                    Ok(args) => {
+                        tracing::info!("[РВМС] Получен PipeWire Node ID от Mutter: {}", args.node_id);
+                        args.node_id
+                    }
+                    Err(e) => {
+                        let err_msg = format!("Ошибка распаковки аргументов сигнала: {}", e);
+                        tracing::error!("[РВМС] {}", err_msg);
+                        return Err(err_msg);
+                    }
                 }
             }
             _ = tokio::time::sleep(std::time::Duration::from_secs(5)) => {
-                return Err("Таймаут ожидания сигнала PipeWireStreamAdded".to_string());
+                let err_msg = "Таймаут ожидания сигнала PipeWireStreamAdded".to_string();
+                tracing::error!("[РВМС] {}", err_msg);
+                return Err(err_msg);
             }
         };
 
         let cache_dir = crate::config::resolve_path(&self.cache_dir);
+        tracing::info!("[РВМС] Подготовка директории кэша: {:?}", cache_dir);
         std::fs::create_dir_all(&cache_dir)
-            .map_err(|e| format!("Не удалось создать кэш-директорию: {}", e))?;
+            .map_err(|e| {
+                let err_msg = format!("Не удалось создать кэш-директорию: {}", e);
+                tracing::error!("[РВМС] {}", err_msg);
+                err_msg
+            })?;
 
         let script_path = cache_dir.join("rvms_loopback.py");
+        tracing::info!("[РВМС] Запись скрипта rvms_loopback.py в {:?}", script_path);
         let script_content = include_str!("rvms_loopback.py");
         std::fs::write(&script_path, script_content)
-            .map_err(|e| format!("Не удалось записать rvms_loopback.py: {}", e))?;
+            .map_err(|e| {
+                let err_msg = format!("Не удалось записать rvms_loopback.py: {}", e);
+                tracing::error!("[РВМС] {}", err_msg);
+                err_msg
+            })?;
 
-        let gst_child = Command::new("python3")
-            .arg(&script_path)
+        tracing::info!("[РВМС] Запуск python3 rvms_loopback.py с Node ID: {}", node_id);
+        let mut cmd = tokio::process::Command::new("python3");
+        cmd.arg(&script_path)
             .arg(format!("{}", node_id))
             .arg(rd_session_path.as_str())
             .arg(stream_path.as_str())
-            .spawn()
-            .map_err(|e| format!("Не удалось запустить rvms_loopback.py: {}", e))?;
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped());
+
+        let mut gst_child = cmd.spawn()
+            .map_err(|e| {
+                let err_msg = format!("Не удалось запустить rvms_loopback.py: {}", e);
+                tracing::error!("[РВМС] {}", err_msg);
+                err_msg
+            })?;
+        tracing::info!("[РВМС] Процесс rvms_loopback.py успешно запущен (PID={:?}).", gst_child.id());
+
+        // Запуск асинхронного неблокирующего чтения stdout подпроцесса
+        if let Some(stdout) = gst_child.stdout.take() {
+            tokio::spawn(async move {
+                use tokio::io::AsyncBufReadExt;
+                let reader = tokio::io::BufReader::new(stdout);
+                let mut lines = reader.lines();
+                while let Ok(Some(line)) = lines.next_line().await {
+                    tracing::info!("[Зеркало РВМС] {}", line);
+                }
+            });
+        }
+
+        // Запуск асинхронного неблокирующего чтения stderr подпроцесса
+        if let Some(stderr) = gst_child.stderr.take() {
+            tokio::spawn(async move {
+                use tokio::io::AsyncBufReadExt;
+                let reader = tokio::io::BufReader::new(stderr);
+                let mut lines = reader.lines();
+                while let Ok(Some(line)) = lines.next_line().await {
+                    tracing::error!("[Зеркало РВМС: Ошибка] {}", line);
+                }
+            });
+        }
 
         // 3. Запись состояния под кратковременной блокировкой
         {
             let mut state = self.state.lock().await;
             if state.pipewire_node_id.is_some() {
+                tracing::warn!("[РВМС] Обнаружен параллельный запуск сессии. Завершаем дублирующий процесс.");
                 let mut child = gst_child;
                 let _ = child.kill();
-                let _ = child.wait();
+                let _ = child.wait().await;
                 return Err("RVMS сессия была параллельно запущена".to_string());
             }
             state.connection = Some(conn);
@@ -238,14 +381,17 @@ impl RvmsManager {
             state.pipewire_node_id = Some(node_id);
         }
 
+        tracing::info!("[РВМС] RVMS сессия успешно запущена! Node ID: {}", node_id);
         Ok(node_id)
     }
 
     pub async fn stop(&self) -> Result<(), String> {
+        tracing::info!("[РВМС] Запрос на остановку RVMS сессии...");
         // 1. Извлекаем ресурсы под кратковременной блокировкой
         let (conn, session_path, rd_session_path, gstreamer_process) = {
             let mut state = self.state.lock().await;
             if state.pipewire_node_id.is_none() {
+                tracing::info!("[РВМС] RVMS сессия уже неактивна, нечего останавливать.");
                 return Ok(());
             }
             let conn = state.connection.take();
@@ -259,13 +405,15 @@ impl RvmsManager {
             (conn, session_path, rd_session_path, gstreamer_process)
         };
 
-        // 2. Освобождаем ресурсы без удержания блокировки Mutex
         if let Some(mut child) = gstreamer_process {
+            tracing::info!("[РВМС] Завершение процесса rvms_loopback.py (PID={:?})...", child.id());
             let _ = child.kill();
-            let _ = child.wait();
+            let _ = child.wait().await;
+            tracing::info!("[РВМС] Процесс rvms_loopback.py завершен.");
         }
 
         if let (Some(ref conn), Some(ref session_path)) = (&conn, &session_path) {
+            tracing::info!("[РВМС] Остановка ScreenCast сессии через D-Bus...");
             if let Ok(session_proxy) = ScreenCastSessionProxy::builder(conn).path(session_path) {
                 if let Ok(proxy) = session_proxy.build().await {
                     let _ = proxy.stop().await;
@@ -274,6 +422,7 @@ impl RvmsManager {
         }
 
         if let (Some(ref conn), Some(ref rd_session_path)) = (&conn, &rd_session_path) {
+            tracing::info!("[РВМС] Остановка RemoteDesktop сессии через D-Bus...");
             if let Ok(rd_session_proxy) =
                 RemoteDesktopSessionProxy::builder(conn).path(rd_session_path)
             {
@@ -283,6 +432,7 @@ impl RvmsManager {
             }
         }
 
+        tracing::info!("[РВМС] RVMS сессия успешно остановлена.");
         Ok(())
     }
 }

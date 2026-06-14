@@ -29,6 +29,7 @@ reqwest = { version = "0.12", features = ["json", "stream", "rustls-tls", "multi
 # logging
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+tracing-appender = "0.2"
 
 # errors
 anyhow = "1"

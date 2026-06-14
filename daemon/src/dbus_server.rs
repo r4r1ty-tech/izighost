@@ -68,18 +68,30 @@ impl DaemonInterface {
 impl DaemonInterface {
     /// Запустить виртуальный экран RVMS. Возвращает ID PipeWire источника для трансляции.
     async fn start_rvms(&self) -> zbus::fdo::Result<u32> {
-        self.rvms_manager
+        tracing::info!("D-Bus: Запрос на запуск виртуального экрана (start_rvms)...");
+        let res = self.rvms_manager
             .start()
             .await
-            .map_err(zbus::fdo::Error::Failed)
+            .map_err(zbus::fdo::Error::Failed);
+        match &res {
+            Ok(node_id) => tracing::info!("D-Bus: Виртуальный экран успешно запущен (PipeWire ID: {})", node_id),
+            Err(e) => tracing::error!("D-Bus: Ошибка запуска виртуального экрана: {:?}", e),
+        }
+        res
     }
 
     /// Остановить трансляцию виртуального экрана RVMS.
     async fn stop_rvms(&self) -> zbus::fdo::Result<()> {
-        self.rvms_manager
+        tracing::info!("D-Bus: Запрос на остановку виртуального экрана (stop_rvms)...");
+        let res = self.rvms_manager
             .stop()
             .await
-            .map_err(zbus::fdo::Error::Failed)
+            .map_err(zbus::fdo::Error::Failed);
+        match &res {
+            Ok(_) => tracing::info!("D-Bus: Виртуальный экран успешно остановлен"),
+            Err(e) => tracing::error!("D-Bus: Ошибка остановки виртуального экрана: {:?}", e),
+        }
+        res
     }
 
     /// Отправить сообщение в чат LLM. Ответ возвращается инкрементально через zbus-сигналы.
@@ -88,6 +100,7 @@ impl DaemonInterface {
         text: String,
         #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
     ) -> zbus::fdo::Result<()> {
+        tracing::info!("D-Bus: Получен запрос send_chat_message. Длина текста: {}", text.len());
         let profile = self.context_store.get_active_profile().await
             .ok_or_else(|| zbus::fdo::Error::Failed("Нет активного профиля".to_string()))?;
 
@@ -168,6 +181,7 @@ impl DaemonInterface {
     }
 
     async fn cancel_generation(&self) -> zbus::fdo::Result<()> {
+        tracing::info!("D-Bus: Получен запрос cancel_generation");
         self.cancel_generation.store(true, std::sync::atomic::Ordering::SeqCst);
         Ok(())
     }
@@ -176,6 +190,7 @@ impl DaemonInterface {
         &self,
         #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
     ) -> zbus::fdo::Result<()> {
+        tracing::info!("D-Bus: Получен запрос trigger_ocr");
         let node_id = match self.rvms_manager.get_pipewire_node_id().await {
             Some(id) => id,
             None => {
@@ -213,6 +228,7 @@ impl DaemonInterface {
         file_path: String,
         #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
     ) -> zbus::fdo::Result<()> {
+        tracing::info!("D-Bus: Получен запрос trigger_ocr_from_file. Файл: {}", file_path);
         let path = std::path::PathBuf::from(file_path);
         if !path.exists() {
             let err_msg = "Указанный файл не существует".to_string();
@@ -242,7 +258,61 @@ impl DaemonInterface {
         }
     }
 
+    /// Сделать тихий скриншот виртуального монитора и вернуть абсолютный путь к временному файлу.
+    async fn capture_virtual_screenshot(
+        &self,
+        #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
+    ) -> zbus::fdo::Result<String> {
+        tracing::info!("D-Bus: Получен запрос capture_virtual_screenshot");
+        let node_id = match self.rvms_manager.get_pipewire_node_id().await {
+            Some(id) => id,
+            None => {
+                return Err(zbus::fdo::Error::Failed("Виртуальный экран не активен. Сначала запустите RVMS сессию в настройках.".to_string()));
+            }
+        };
+        match crate::ocr::capture_screenshot(node_id).await {
+            Ok(path) => {
+                let path_str = path.to_string_lossy().to_string();
+                tracing::info!("D-Bus: Скриншот успешно сохранен в {}", path_str);
+                if let Err(e) = Self::screenshot_captured(&emitter, &path_str).await {
+                    tracing::error!("Ошибка отправки D-Bus сигнала screenshot_captured: {:?}", e);
+                }
+                Ok(path_str)
+            }
+            Err(e) => {
+                let err_msg = format!("Ошибка захвата скриншота: {}", e);
+                tracing::error!("{}", err_msg);
+                Err(zbus::fdo::Error::Failed(err_msg))
+            }
+        }
+    }
+
+    /// Запустить OCR на указанном файле изображения и вернуть распознанный текст напрямую.
+    async fn run_ocr_on_file(&self, file_path: String) -> zbus::fdo::Result<String> {
+        tracing::info!("D-Bus: Получен запрос run_ocr_on_file. Файл: {}", file_path);
+        let path = std::path::PathBuf::from(file_path);
+        if !path.exists() {
+            return Err(zbus::fdo::Error::Failed("Указанный файл не существует".to_string()));
+        }
+
+        let profile = self.context_store.get_active_profile().await;
+        match crate::ocr::run_ocr_on_file(path, profile, &self._config.general.cache_dir).await {
+            Ok(text) => {
+                self.context_store.set_last_preview(Some(text.clone())).await;
+                tracing::info!("D-Bus: OCR на файле успешно завершено. Длина текста: {}", text.len());
+                Ok(text)
+            }
+            Err(e) => {
+                let err_msg = format!("Ошибка распознавания текста (OCR): {}", e);
+                tracing::error!("{}", err_msg);
+                Err(zbus::fdo::Error::Failed(err_msg))
+            }
+        }
+    }
+
+
     async fn start_listening(&self) -> zbus::fdo::Result<()> {
+        tracing::info!("D-Bus: Получен запрос start_listening");
         static FILE_COUNTER: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
         let count = FILE_COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         let pid = std::process::id();
@@ -304,6 +374,7 @@ impl DaemonInterface {
         &self,
         #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
     ) -> zbus::fdo::Result<()> {
+        tracing::info!("D-Bus: Получен запрос stop_listening");
         let recording = {
             let mut state = self.recording_state.lock().await;
             state.take()
@@ -395,6 +466,7 @@ impl DaemonInterface {
     }
 
     async fn get_chat_history(&self) -> zbus::fdo::Result<Vec<(String, String)>> {
+        tracing::info!("D-Bus: Получен запрос get_chat_history");
         let history = self.context_store.get_history().await;
         let result = history
             .iter()
@@ -406,18 +478,21 @@ impl DaemonInterface {
     // --- Profile Management ---
 
     async fn list_profiles(&self) -> zbus::fdo::Result<Vec<String>> {
+        tracing::info!("D-Bus: Получен запрос list_profiles");
         self.profile_manager
             .list_profiles()
             .map_err(|e| zbus::fdo::Error::Failed(e.to_string()))
     }
 
     async fn get_profile(&self, id: String) -> zbus::fdo::Result<Profile> {
+        tracing::info!("D-Bus: Получен запрос get_profile для ID: {}", id);
         self.profile_manager
             .get_profile(&id)
             .map_err(|e| zbus::fdo::Error::Failed(e.to_string()))
     }
 
     async fn save_profile(&self, profile: Profile) -> zbus::fdo::Result<Profile> {
+        tracing::info!("D-Bus: Получен запрос save_profile для ID: {}", profile.id);
         self.profile_manager
             .save_profile(profile)
             .await
@@ -425,12 +500,14 @@ impl DaemonInterface {
     }
 
     async fn delete_profile(&self, id: String) -> zbus::fdo::Result<()> {
+        tracing::info!("D-Bus: Получен запрос delete_profile для ID: {}", id);
         self.profile_manager
             .delete_profile(&id)
             .map_err(|e| zbus::fdo::Error::Failed(e.to_string()))
     }
 
     async fn set_active_profile(&self, id: String) -> zbus::fdo::Result<()> {
+        tracing::info!("D-Bus: Получен запрос set_active_profile для ID: {}", id);
         let profile = self
             .profile_manager
             .get_profile(&id)
@@ -441,6 +518,7 @@ impl DaemonInterface {
     }
 
     async fn get_active_profile(&self) -> zbus::fdo::Result<Profile> {
+        tracing::info!("D-Bus: Получен запрос get_active_profile");
         Ok(self
             .context_store
             .get_active_profile()
@@ -464,4 +542,7 @@ impl DaemonInterface {
 
     #[zbus(signal)]
     pub async fn error_occurred(emitter: &SignalEmitter<'_>, message: &str) -> zbus::Result<()>;
+
+    #[zbus(signal)]
+    pub async fn screenshot_captured(emitter: &SignalEmitter<'_>, filepath: &str) -> zbus::Result<()>;
 }

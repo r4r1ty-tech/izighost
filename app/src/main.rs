@@ -223,7 +223,28 @@ fn apply_dark_theme(ctx: &egui::Context) {
 
 fn main() -> Result<(), eframe::Error> {
     // Инициализируем логирование
-    tracing_subscriber::fmt::init();
+    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+    let logs_dir = std::path::PathBuf::from(home).join(".cache/izighost/logs");
+    let _ = std::fs::create_dir_all(&logs_dir);
+
+    let file_appender = tracing_appender::rolling::daily(&logs_dir, "izighost.log");
+    let (non_blocking, _log_guard) = tracing_appender::non_blocking(file_appender);
+
+    use tracing_subscriber::prelude::*;
+    let filter = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
+
+    let console_layer = tracing_subscriber::fmt::layer()
+        .with_writer(std::io::stderr);
+    let file_layer = tracing_subscriber::fmt::layer()
+        .with_writer(non_blocking)
+        .with_ansi(false);
+
+    tracing_subscriber::registry()
+        .with(filter)
+        .with(console_layer)
+        .with(file_layer)
+        .init();
 
     // Устанавливаем файлы расширения (без крашей при ошибках)
     install_extension_files();
@@ -359,16 +380,16 @@ impl IziGhostApp {
     }
 
     /// Опрос D-Bus сигналов демона
-    fn handle_signals(&mut self) {
+    fn handle_signals(&mut self, ctx: &egui::Context) {
         if let Some(ref mut rx) = self.signal_rx {
             while let Ok(signal) = rx.try_recv() {
-                self.hud_state.handle_dbus_signal(signal);
+                self.hud_state.handle_dbus_signal(signal, ctx);
             }
         }
     }
 
     /// Опрос событий GUI из фоновых потоков
-    fn handle_gui_events(&mut self) {
+    fn handle_gui_events(&mut self, ctx: &egui::Context) {
         while let Ok(event) = self.gui_event_rx.try_recv() {
             self.onboarding_state.handle_event(&event);
 
@@ -406,6 +427,15 @@ impl IziGhostApp {
                 GuiEvent::ChatHistoryLoaded(history) => {
                     self.hud_state.chat_messages = history;
                 }
+                GuiEvent::ScreenshotCaptured(path) => {
+                    self.hud_state.set_attached_screenshot(path, ctx);
+                }
+                GuiEvent::Error(msg) => {
+                    self.hud_state.is_generating = false;
+                    self.hud_state.is_listening = false;
+                    self.preferences_state
+                        .handle_event(GuiEvent::Error(msg), &self.dbus_client);
+                }
                 other => {
                     self.preferences_state
                         .handle_event(other, &self.dbus_client);
@@ -418,8 +448,8 @@ impl IziGhostApp {
 impl eframe::App for IziGhostApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         // Опрашиваем каналы
-        self.handle_signals();
-        self.handle_gui_events();
+        self.handle_signals(ui.ctx());
+        self.handle_gui_events(ui.ctx());
 
         // 1. Отрисовка HUD в главном прозрачном окне
         egui::CentralPanel::default()
@@ -433,8 +463,9 @@ impl eframe::App for IziGhostApp {
                         event_tx,
                     );
                 } else {
+                    let event_tx = self.gui_event_tx.clone();
                     self.hud_state
-                        .draw(ui, &self.dbus_client, &self.preferences_state.active_id);
+                        .draw(ui, &self.dbus_client, &self.preferences_state.active_id, event_tx);
                 }
             });
 
