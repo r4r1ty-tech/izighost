@@ -6,7 +6,7 @@ pub async fn parse_file(path_str: &str) -> Result<String, IziError> {
     let path = resolve_path(path_str);
     if !path.exists() {
         return Err(IziError::Profile(format!(
-            "File not found: {}",
+            "Файл не найден: {}",
             path.display()
         )));
     }
@@ -15,7 +15,7 @@ pub async fn parse_file(path_str: &str) -> Result<String, IziError> {
 
     let result = extract_file(&path, None, &config).await.map_err(|e| {
         IziError::Profile(format!(
-            "Failed to extract text from file {}: {}",
+            "Не удалось извлечь текст из файла {}: {}",
             path.display(),
             e
         ))

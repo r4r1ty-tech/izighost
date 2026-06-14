@@ -28,7 +28,7 @@ impl ProfileManager {
 
         let mut ids = Vec::new();
         let entries = fs::read_dir(&self.profiles_dir)
-            .map_err(|e| IziError::Profile(format!("Failed to read profiles directory: {}", e)))?;
+            .map_err(|e| IziError::Profile(format!("Не удалось прочитать директорию профилей: {}", e)))?;
 
         for entry in entries.flatten() {
             let path = entry.path();
@@ -49,14 +49,14 @@ impl ProfileManager {
     pub fn get_profile(&self, id: &str) -> Result<Profile, IziError> {
         let file_path = self.profiles_dir.join(format!("{}.yaml", id));
         if !file_path.exists() {
-            return Err(IziError::Profile(format!("Profile '{}' not found", id)));
+            return Err(IziError::Profile(format!("Профиль '{}' не найден", id)));
         }
 
         let content = fs::read_to_string(&file_path)
-            .map_err(|e| IziError::Profile(format!("Failed to read profile file: {}", e)))?;
+            .map_err(|e| IziError::Profile(format!("Не удалось прочитать файл профиля: {}", e)))?;
 
         let profile: Profile = serde_yaml::from_str(&content)
-            .map_err(|e| IziError::Profile(format!("Failed to parse profile YAML: {}", e)))?;
+            .map_err(|e| IziError::Profile(format!("Не удалось разобрать YAML профиля: {}", e)))?;
 
         Ok(profile)
     }
@@ -64,7 +64,7 @@ impl ProfileManager {
     pub async fn save_profile(&self, mut profile: Profile) -> Result<Profile, IziError> {
         if !self.profiles_dir.exists() {
             fs::create_dir_all(&self.profiles_dir).map_err(|e| {
-                IziError::Profile(format!("Failed to create profiles directory: {}", e))
+                IziError::Profile(format!("Не удалось создать директорию профилей: {}", e))
             })?;
         }
 
@@ -80,7 +80,7 @@ impl ProfileManager {
                 match parser::parse_file(&profile.cv_path).await {
                     Ok(text) => profile.cv_text = text,
                     Err(e) => {
-                        return Err(IziError::Profile(format!("CV parsing failed: {}", e)));
+                        return Err(IziError::Profile(format!("Ошибка парсинга резюме (CV): {}", e)));
                     }
                 }
             }
@@ -98,7 +98,7 @@ impl ProfileManager {
                 match parser::parse_file(&profile.vacancy_path).await {
                     Ok(text) => profile.vacancy_text = text,
                     Err(e) => {
-                        return Err(IziError::Profile(format!("Vacancy parsing failed: {}", e)));
+                        return Err(IziError::Profile(format!("Ошибка парсинга вакансии: {}", e)));
                     }
                 }
             }
@@ -106,11 +106,11 @@ impl ProfileManager {
 
         let file_path = self.profiles_dir.join(format!("{}.yaml", profile.id));
         let content = serde_yaml::to_string(&profile).map_err(|e| {
-            IziError::Profile(format!("Failed to serialize profile to YAML: {}", e))
+            IziError::Profile(format!("Не удалось сериализовать профиль в YAML: {}", e))
         })?;
 
         fs::write(&file_path, content)
-            .map_err(|e| IziError::Profile(format!("Failed to write profile file: {}", e)))?;
+            .map_err(|e| IziError::Profile(format!("Не удалось записать файл профиля: {}", e)))?;
 
         Ok(profile)
     }
@@ -119,7 +119,7 @@ impl ProfileManager {
         let file_path = self.profiles_dir.join(format!("{}.yaml", id));
         if file_path.exists() {
             fs::remove_file(&file_path)
-                .map_err(|e| IziError::Profile(format!("Failed to delete profile file: {}", e)))?;
+                .map_err(|e| IziError::Profile(format!("Не удалось удалить файл профиля: {}", e)))?;
         }
         Ok(())
     }

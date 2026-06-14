@@ -1,12 +1,18 @@
 use serde::{Deserialize, Serialize};
 use zvariant::Type;
 
+/// Конфигурация для языковых моделей (LLM).
 #[derive(Serialize, Deserialize, Type, Debug, Clone)]
 pub struct LlmConfig {
+    /// Имя провайдера (например, "openai", "groq", "openai_compat").
     pub provider: String,
+    /// Имя используемой модели.
     pub model: String,
+    /// Базовый URL API для запросов.
     pub base_url: String,
+    /// Температура генерации (креативность ответов).
     pub temperature: f64,
+    /// Максимальное число сообщений контекста, хранящихся в истории.
     pub max_context_messages: u32,
 }
 
@@ -22,10 +28,14 @@ impl Default for LlmConfig {
     }
 }
 
+/// Конфигурация для распознавания речи (ASR / Whisper).
 #[derive(Serialize, Deserialize, Type, Debug, Clone)]
 pub struct AsrConfig {
+    /// Имя провайдера (например, "openai", "groq", "local").
     pub provider: String,
+    /// Имя используемой модели.
     pub model: String,
+    /// Базовый URL API для отправки аудио.
     pub base_url: String,
 }
 
@@ -47,13 +57,19 @@ fn default_ocr_prompt() -> String {
     "Extract all text from this image exactly as it appears. Do not add any introduction, explanations, comments, or markdown code blocks. Just output the extracted text.".to_string()
 }
 
+/// Конфигурация для Vision LLM (обработка изображений).
 #[derive(Serialize, Deserialize, Type, Debug, Clone)]
 pub struct VisionConfig {
+    /// Имя провайдера для обработки картинок.
     pub provider: String,
+    /// Имя мультимодальной модели.
     pub model: String,
+    /// Базовый URL API.
     pub base_url: String,
+    /// Использовать ли специальный OCR-промпт при отправке изображения.
     #[serde(default = "default_use_ocr_prompt")]
     pub use_ocr_prompt: bool,
+    /// Инструкция для модели при обработке изображения.
     #[serde(default = "default_ocr_prompt")]
     pub ocr_prompt: String,
 }
@@ -70,22 +86,37 @@ impl Default for VisionConfig {
     }
 }
 
+/// Профиль пользователя, содержащий системные инструкции, резюме, вакансию и настройки моделей.
 #[derive(Serialize, Deserialize, Type, Debug, Clone)]
 pub struct Profile {
+    /// Уникальный идентификатор профиля.
     pub id: String,
+    /// Человекочитаемое название профиля.
     pub name: String,
+    /// Путь к файлу резюме.
     pub cv_path: String,
+    /// Текстовое содержимое резюме.
     pub cv_text: String,
+    /// Путь к файлу описания вакансии.
     pub vacancy_path: String,
+    /// Текстовое содержимое вакансии.
     pub vacancy_text: String,
+    /// Дополнительный контекст.
     pub extra: String,
+    /// Факты о кандидате.
     pub facts: String,
+    /// Системные инструкции для AI (System Prompt).
     pub system_prompt: String,
+    /// Конфигурация текстовой языковой модели.
     pub llm: LlmConfig,
+    /// Конфигурация модели распознавания речи.
     pub asr: AsrConfig,
+    /// Конфигурация мультимодальной модели.
     #[serde(default)]
     pub vision: VisionConfig,
+    /// Время создания профиля.
     pub created: String,
+    /// Время последнего использования профиля.
     pub last_used: String,
 }
 

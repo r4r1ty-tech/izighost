@@ -5,6 +5,7 @@ use crate::rvms::RvmsManager;
 use izighost_common::Profile;
 use zbus::{interface, object_server::SignalEmitter};
 
+/// Интерфейс D-Bus сервера IziGhost для связи между GUI и демоном.
 pub struct DaemonInterface {
     profile_manager: ProfileManager,
     context_store: ContextStore,
@@ -65,6 +66,7 @@ impl DaemonInterface {
 
 #[interface(name = "com.izighost.Daemon")]
 impl DaemonInterface {
+    /// Запустить виртуальный экран RVMS. Возвращает ID PipeWire источника для трансляции.
     async fn start_rvms(&self) -> zbus::fdo::Result<u32> {
         self.rvms_manager
             .start()
@@ -72,6 +74,7 @@ impl DaemonInterface {
             .map_err(zbus::fdo::Error::Failed)
     }
 
+    /// Остановить трансляцию виртуального экрана RVMS.
     async fn stop_rvms(&self) -> zbus::fdo::Result<()> {
         self.rvms_manager
             .stop()
@@ -79,6 +82,7 @@ impl DaemonInterface {
             .map_err(zbus::fdo::Error::Failed)
     }
 
+    /// Отправить сообщение в чат LLM. Ответ возвращается инкрементально через zbus-сигналы.
     async fn send_chat_message(
         &self,
         text: String,

@@ -3,34 +3,34 @@ use thiserror::Error;
 
 #[derive(Error, Debug, Serialize, Deserialize, Clone)]
 pub enum IziError {
-    #[error("Configuration error: {0}")]
+    #[error("Ошибка конфигурации: {0}")]
     Config(String),
 
-    #[error("Profile error: {0}")]
+    #[error("Ошибка профиля: {0}")]
     Profile(String),
 
-    #[error("OCR error: {0}")]
+    #[error("Ошибка OCR: {0}")]
     Ocr(String),
 
-    #[error("ASR error: {0}")]
+    #[error("Ошибка ASR: {0}")]
     Asr(String),
 
-    #[error("LLM error: {0}")]
+    #[error("Ошибка LLM: {0}")]
     Llm(String),
 
-    #[error("D-Bus error: {0}")]
+    #[error("Ошибка D-Bus: {0}")]
     Dbus(String),
 
-    #[error("Portal error: {0}")]
+    #[error("Ошибка портала: {0}")]
     Portal(String),
 
-    #[error("PipeWire error: {0}")]
+    #[error("Ошибка PipeWire: {0}")]
     PipeWire(String),
 
-    #[error("Keyring error: {0}")]
+    #[error("Ошибка связки ключей: {0}")]
     Keyring(String),
 
-    #[error("Internal error: {0}")]
+    #[error("Внутренняя ошибка: {0}")]
     Internal(String),
 }
 
