@@ -82,8 +82,6 @@ impl ProfileManager {
                     }
                 }
             }
-        } else {
-            profile.cv_text = "".to_string();
         }
 
         // Handle parsing vacancy if path is set and text is empty
@@ -102,8 +100,6 @@ impl ProfileManager {
                     }
                 }
             }
-        } else {
-            profile.vacancy_text = "".to_string();
         }
 
         let file_path = self.profiles_dir.join(format!("{}.yaml", profile.id));
