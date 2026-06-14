@@ -1,9 +1,12 @@
+#![allow(dead_code)]
+
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(default)]
 pub struct GeneralConfig {
     pub log_level: String,
     pub data_dir: String,
@@ -21,6 +24,7 @@ impl Default for GeneralConfig {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(default)]
 pub struct OcrPreprocessingConfig {
     pub upscale: bool,
     pub grayscale: bool,
@@ -38,6 +42,7 @@ impl Default for OcrPreprocessingConfig {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(default)]
 pub struct OcrConfig {
     pub engine: String,
     pub binary: String,
@@ -59,6 +64,7 @@ impl Default for OcrConfig {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(default)]
 pub struct VadConfig {
     pub enabled: bool,
     pub energy_threshold: f32,
@@ -74,12 +80,14 @@ impl Default for VadConfig {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
+#[serde(default)]
 pub struct PipewireConfig {
     pub target_sink: Option<String>,
     pub target_source: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(default)]
 pub struct AudioConfig {
     pub source: String,
     pub chunk_duration_ms: u32,
@@ -99,6 +107,7 @@ impl Default for AudioConfig {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(default)]
 pub struct LlmDefaultsConfig {
     pub streaming: bool,
     pub max_context_messages: u32,
@@ -118,6 +127,7 @@ impl Default for LlmDefaultsConfig {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(default)]
 pub struct AsrDefaultsConfig {
     pub chunk_duration_sec: f64,
     pub language: String,
@@ -133,6 +143,7 @@ impl Default for AsrDefaultsConfig {
 }
 
 #[derive(Serialize, Deserialize, Default, Debug, Clone)]
+#[serde(default)]
 pub struct DaemonConfig {
     pub general: GeneralConfig,
     pub ocr: OcrConfig,
