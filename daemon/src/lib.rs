@@ -5,3 +5,4 @@ pub mod ocr;
 pub mod profile;
 pub mod prompt_assembler;
 pub mod rvms;
+pub mod audio;
