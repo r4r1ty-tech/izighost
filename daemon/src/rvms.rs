@@ -108,18 +108,19 @@ impl RvmsManager {
     }
 
     pub async fn start(&self) -> Result<u32, String> {
-        let mut state = self.state.lock().await;
-
-        if state.pipewire_node_id.is_some() {
-            return Err("RVMS сессия уже активна".to_string());
+        // 1. Быстрая проверка под блокировкой
+        {
+            let state = self.state.lock().await;
+            if state.pipewire_node_id.is_some() {
+                return Err("RVMS сессия уже активна".to_string());
+            }
         }
 
-        // 1. Подключение к D-Bus
+        // 2. Асинхронная инициализация вне Mutex
         let conn = Connection::session()
             .await
             .map_err(|e| format!("Не удалось подключиться к сессионной шине D-Bus: {}", e))?;
 
-        // 2. Создание RemoteDesktop сессии для эмуляции ввода (EIS)
         let rd_proxy = RemoteDesktopProxy::new(&conn)
             .await
             .map_err(|e| format!("Не удалось создать RemoteDesktop прокси: {}", e))?;
@@ -134,14 +135,12 @@ impl RvmsManager {
             .await
             .map_err(|e| format!("Не удалось построить прокси RemoteDesktopSession: {}", e))?;
 
-        // 3. Создание ScreenCast прокси
         let screencast_proxy = ScreenCastProxy::new(&conn)
             .await
             .map_err(|e| format!("Не удалось создать ScreenCast прокси: {}", e))?;
 
-        // 4. Создание ScreenCast сессии
         let mut session_props = HashMap::new();
-        session_props.insert("cursor-mode", Value::from(1u32)); // отображать курсор
+        session_props.insert("cursor-mode", Value::from(1u32));
         let session_path = screencast_proxy
             .create_session(session_props)
             .await
@@ -154,7 +153,6 @@ impl RvmsManager {
             .await
             .map_err(|e| format!("Не удалось построить прокси ScreenCastSession: {}", e))?;
 
-        // 5. Добавление виртуального монитора
         let mut record_props = HashMap::new();
         record_props.insert("width", Value::from(1920i32));
         record_props.insert("height", Value::from(1080i32));
@@ -173,7 +171,6 @@ impl RvmsManager {
             .await
             .map_err(|e| format!("Не удалось построить прокси ScreenCastStream: {}", e))?;
 
-        // 6. Подписка на сигнал добавления PipeWire стрима
         let mut signal_stream = stream_proxy
             .receive_pipe_wire_stream_added()
             .await
@@ -184,7 +181,6 @@ impl RvmsManager {
                 )
             })?;
 
-        // 7. Запуск сессий ввода и трансляции
         rd_session_proxy
             .start()
             .await
@@ -194,7 +190,6 @@ impl RvmsManager {
             .await
             .map_err(|e| format!("Не удалось запустить ScreenCast сессию: {}", e))?;
 
-        // 8. Ожидание сигнала с PipeWire Node ID
         let node_id = tokio::select! {
             Some(msg) = signal_stream.next() => {
                 match msg.args() {
@@ -207,7 +202,6 @@ impl RvmsManager {
             }
         };
 
-        // 9. Запуск интерактивного loopback-зеркала с поддержкой EIS ввода
         let home = std::env::var("HOME")
             .map_err(|_| "Переменная HOME не определена".to_string())?;
         let cache_dir = std::path::PathBuf::from(home).join(".cache/izighost");
@@ -227,32 +221,51 @@ impl RvmsManager {
             .spawn()
             .map_err(|e| format!("Не удалось запустить rvms_loopback.py: {}", e))?;
 
-        // Сохраняем состояние сессии
-        state.connection = Some(conn);
-        state.session_path = Some(session_path);
-        state.stream_path = Some(stream_path);
-        state.rd_session_path = Some(rd_session_path);
-        state.gstreamer_process = Some(gst_child);
-        state.pipewire_node_id = Some(node_id);
+        // 3. Запись состояния под кратковременной блокировкой
+        {
+            let mut state = self.state.lock().await;
+            if state.pipewire_node_id.is_some() {
+                let mut child = gst_child;
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err("RVMS сессия была параллельно запущена".to_string());
+            }
+            state.connection = Some(conn);
+            state.session_path = Some(session_path);
+            state.stream_path = Some(stream_path);
+            state.rd_session_path = Some(rd_session_path);
+            state.gstreamer_process = Some(gst_child);
+            state.pipewire_node_id = Some(node_id);
+        }
 
         Ok(node_id)
     }
 
     pub async fn stop(&self) -> Result<(), String> {
-        let mut state = self.state.lock().await;
+        // 1. Извлекаем ресурсы под кратковременной блокировкой
+        let (conn, session_path, rd_session_path, gstreamer_process) = {
+            let mut state = self.state.lock().await;
+            if state.pipewire_node_id.is_none() {
+                return Ok(());
+            }
+            let conn = state.connection.take();
+            let session_path = state.session_path.take();
+            let rd_session_path = state.rd_session_path.take();
+            let gstreamer_process = state.gstreamer_process.take();
 
-        if state.pipewire_node_id.is_none() {
-            return Ok(());
-        }
+            state.stream_path = None;
+            state.pipewire_node_id = None;
 
-        // Останавливаем процесс rvms_loopback.py
-        if let Some(mut child) = state.gstreamer_process.take() {
+            (conn, session_path, rd_session_path, gstreamer_process)
+        };
+
+        // 2. Освобождаем ресурсы без удержания блокировки Mutex
+        if let Some(mut child) = gstreamer_process {
             let _ = child.kill();
             let _ = child.wait();
         }
 
-        // Вызываем метод Stop на объекте ScreenCast сессии
-        if let (Some(ref conn), Some(ref session_path)) = (&state.connection, &state.session_path) {
+        if let (Some(ref conn), Some(ref session_path)) = (&conn, &session_path) {
             if let Ok(session_proxy) = ScreenCastSessionProxy::builder(conn).path(session_path) {
                 if let Ok(proxy) = session_proxy.build().await {
                     let _ = proxy.stop().await;
@@ -260,10 +273,7 @@ impl RvmsManager {
             }
         }
 
-        // Вызываем метод Stop на объекте RemoteDesktop сессии
-        if let (Some(ref conn), Some(ref rd_session_path)) =
-            (&state.connection, &state.rd_session_path)
-        {
+        if let (Some(ref conn), Some(ref rd_session_path)) = (&conn, &rd_session_path) {
             if let Ok(rd_session_proxy) =
                 RemoteDesktopSessionProxy::builder(conn).path(rd_session_path)
             {
@@ -272,13 +282,6 @@ impl RvmsManager {
                 }
             }
         }
-
-        // Сбрасываем D-Bus прокси и соединение, что заставит Mutter закрыть сессии
-        state.connection = None;
-        state.session_path = None;
-        state.stream_path = None;
-        state.rd_session_path = None;
-        state.pipewire_node_id = None;
 
         Ok(())
     }
