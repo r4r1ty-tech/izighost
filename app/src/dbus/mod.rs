@@ -21,6 +21,7 @@ pub trait Daemon {
     async fn stop_rvms(&self) -> zbus::Result<()>;
     async fn send_chat_message(&self, text: &str) -> zbus::Result<()>;
     async fn trigger_ocr(&self) -> zbus::Result<()>;
+    async fn trigger_ocr_from_file(&self, file_path: &str) -> zbus::Result<()>;
     async fn start_listening(&self) -> zbus::Result<()>;
     async fn stop_listening(&self) -> zbus::Result<()>;
     async fn list_profiles(&self) -> zbus::Result<Vec<String>>;
@@ -91,8 +92,13 @@ impl DaemonClient {
         self.proxy.send_chat_message(text).await
     }
 
+    #[allow(dead_code)]
     pub async fn trigger_ocr(&self) -> zbus::Result<()> {
         self.proxy.trigger_ocr().await
+    }
+
+    pub async fn trigger_ocr_from_file(&self, file_path: &str) -> zbus::Result<()> {
+        self.proxy.trigger_ocr_from_file(file_path).await
     }
 
     pub async fn start_listening(&self) -> zbus::Result<()> {
