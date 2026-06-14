@@ -33,7 +33,9 @@ async fn run_whisper_api(
     model: &str,
     api_key: &str,
 ) -> Result<String, anyhow::Error> {
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(60))
+        .build()?;
     let url = format!("{}/audio/transcriptions", base_url.trim_end_matches('/'));
 
     let file_bytes = std::fs::read(wav_path)?;

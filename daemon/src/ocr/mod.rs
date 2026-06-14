@@ -119,6 +119,10 @@ async fn ensure_tessdata_downloaded() -> Result<PathBuf, anyhow::Error> {
 
     std::fs::create_dir_all(&tessdata_dir)?;
 
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(120))
+        .build()?;
+
     let files = ["eng.traineddata", "rus.traineddata"];
     for file in &files {
         let file_path = tessdata_dir.join(file);
@@ -128,7 +132,7 @@ async fn ensure_tessdata_downloaded() -> Result<PathBuf, anyhow::Error> {
                 "https://github.com/tesseract-ocr/tessdata_fast/raw/main/{}",
                 file
             );
-            let response = reqwest::get(&url).await?;
+            let response = client.get(&url).send().await?;
             if !response.status().is_success() {
                 return Err(anyhow::anyhow!(
                     "Ошибка загрузки файла tessdata ({}): {}",
@@ -256,7 +260,9 @@ async fn run_vision_api_ocr(
     };
 
     // 3. Формируем запрос
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(60))
+        .build()?;
     let url = format!("{}/chat/completions", base_url.trim_end_matches('/'));
 
     let image_url = format!("data:image/png;base64,{}", base64_data);
