@@ -3,6 +3,8 @@ use crate::window::theme;
 use eframe::egui;
 use eframe::egui::{Color32, RichText, Stroke, Vec2};
 use std::sync::Arc;
+use tokio::sync::mpsc::Sender;
+use crate::window::preferences::GuiEvent;
 
 pub struct HudState {
     pub input_text: String,
@@ -16,6 +18,9 @@ pub struct HudState {
     pub active_ocr_task: Option<tokio::task::JoinHandle<()>>,
     pub active_asr_task: Option<tokio::task::JoinHandle<()>>,
     pub active_chat_task: Option<tokio::task::JoinHandle<()>>,
+    pub is_cursor_on_virtual: bool,
+    pub attached_screenshot_path: Option<String>,
+    pub screenshot_texture: Option<egui::TextureHandle>,
 }
 
 impl HudState {
@@ -32,11 +37,14 @@ impl HudState {
             active_ocr_task: None,
             active_asr_task: None,
             active_chat_task: None,
+            is_cursor_on_virtual: false,
+            attached_screenshot_path: None,
+            screenshot_texture: None,
         }
     }
 
     /// Обработка входящих D-Bus сигналов
-    pub fn handle_dbus_signal(&mut self, signal: DaemonSignal) {
+    pub fn handle_dbus_signal(&mut self, signal: DaemonSignal, ctx: &egui::Context) {
         match signal {
             DaemonSignal::ChatChunk(chunk) => {
                 self.is_generating = true;
@@ -52,50 +60,63 @@ impl HudState {
                 self.is_generating = false;
             }
             DaemonSignal::OcrCompleted(text) => {
+                tracing::info!("GUI: Получен D-Bus сигнал OcrCompleted. Текст: {:?}", text);
+                self.is_generating = false;
                 self.input_text = text;
             }
             DaemonSignal::AsrCompleted(text) => {
+                tracing::info!("GUI: Получен D-Bus сигнал AsrCompleted. Текст: {:?}", text);
                 self.is_listening = false;
                 self.input_text = text;
             }
             DaemonSignal::ErrorOccurred(msg) => {
+                tracing::error!("GUI: Получен D-Bus сигнал ErrorOccurred: {}", msg);
                 self.is_generating = false;
                 self.is_listening = false;
                 self.chat_messages
                     .push(("system".to_string(), format!("Ошибка: {}", msg)));
             }
+            DaemonSignal::ScreenshotCaptured(filepath) => {
+                tracing::info!("GUI: Получен D-Bus сигнал ScreenshotCaptured: {}", filepath);
+                self.set_attached_screenshot(filepath, ctx);
+            }
         }
     }
 
+    pub fn set_attached_screenshot(&mut self, path: String, ctx: &egui::Context) {
+        self.screenshot_texture = load_texture_from_path(ctx, &path);
+        self.attached_screenshot_path = Some(path);
+        self.is_generating = false;
+    }
+
+
     /// Обработка вставки изображений из буфера обмена (Ctrl+V) и drag-and-drop файлов
-    fn handle_image_inputs(&mut self, ui: &mut egui::Ui, dbus_client: &Option<Arc<DaemonClient>>) {
+    fn handle_image_inputs(&mut self, ui: &mut egui::Ui, _dbus_client: &Option<Arc<DaemonClient>>) {
         // 1. Проверяем Ctrl+V (вставка из буфера обмена)
         let ctrl_v = ui.input(|i| i.key_pressed(egui::Key::V) && i.modifiers.command);
         if ctrl_v {
+            tracing::info!("GUI: Нажата комбинация Ctrl+V для вставки изображения...");
             if let Ok(mut clipboard) = arboard::Clipboard::new() {
-                if let Ok(image_data) = clipboard.get_image() {
-                    if let Some(client) = dbus_client {
-                        let client = client.clone();
-                        self.is_generating = true;
-                        if let Some(task) = self.active_ocr_task.take() {
-                            task.abort();
-                        }
-                        self.active_ocr_task = Some(tokio::spawn(async move {
-                            match save_clipboard_image(image_data) {
-                                Ok(temp_path) => {
-                                    let path_str = temp_path.to_string_lossy().to_string();
-                                    if let Err(e) = client.trigger_ocr_from_file(&path_str).await {
-                                        eprintln!("Ошибка вызова trigger_ocr_from_file: {:?}", e);
-                                        let _ = std::fs::remove_file(&temp_path);
-                                    }
-                                }
-                                Err(e) => {
-                                    eprintln!("Ошибка сохранения изображения из буфера: {:?}", e);
-                                }
+                match clipboard.get_image() {
+                    Ok(image_data) => {
+                        match save_clipboard_image(image_data) {
+                            Ok(temp_path) => {
+                                let path_str = temp_path.to_string_lossy().to_string();
+                                tracing::info!("GUI: Буфер обмена сохранен во временный файл: {}", path_str);
+                                self.screenshot_texture = load_texture_from_path(ui.ctx(), &path_str);
+                                self.attached_screenshot_path = Some(path_str);
                             }
-                        }));
+                            Err(e) => {
+                                tracing::error!("GUI: Ошибка сохранения изображения из буфера обмена: {:?}", e);
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!("GUI: В буфере обмена нет изображения: {:?}", e);
                     }
                 }
+            } else {
+                tracing::error!("GUI: Не удалось инициализировать доступ к буферу обмена");
             }
         }
 
@@ -104,30 +125,16 @@ impl HudState {
         if !dropped_files.is_empty() {
             for file in dropped_files {
                 if let Some(ref path) = file.path {
-                    if let Some(client) = dbus_client {
-                        let client = client.clone();
-                        let original_path = path.clone();
-                        self.is_generating = true;
-                        if let Some(task) = self.active_ocr_task.take() {
-                            task.abort();
+                    match copy_to_temp(path.clone()) {
+                        Ok(temp_path) => {
+                            let path_str = temp_path.to_string_lossy().to_string();
+                            tracing::info!("GUI: Перетащенный файл скопирован в: {}", path_str);
+                            self.screenshot_texture = load_texture_from_path(ui.ctx(), &path_str);
+                            self.attached_screenshot_path = Some(path_str);
                         }
-                        self.active_ocr_task = Some(tokio::spawn(async move {
-                            match copy_to_temp(original_path) {
-                                Ok(temp_path) => {
-                                    let path_str = temp_path.to_string_lossy().to_string();
-                                    if let Err(e) = client.trigger_ocr_from_file(&path_str).await {
-                                        eprintln!("Ошибка вызова trigger_ocr_from_file: {:?}", e);
-                                        let _ = std::fs::remove_file(&temp_path);
-                                    }
-                                }
-                                Err(e) => {
-                                    eprintln!(
-                                        "Ошибка копирования файла во временную папку: {:?}",
-                                        e
-                                    );
-                                }
-                            }
-                        }));
+                        Err(e) => {
+                            tracing::error!("GUI: Ошибка копирования перетащенного файла: {:?}", e);
+                        }
                     }
                 }
             }
@@ -140,6 +147,7 @@ impl HudState {
         ui: &mut egui::Ui,
         dbus_client: &Option<Arc<DaemonClient>>,
         active_profile: &Option<String>,
+        gui_event_tx: Sender<GuiEvent>,
     ) {
         self.handle_image_inputs(ui, dbus_client);
 
@@ -176,7 +184,7 @@ impl HudState {
             ui.separator();
             self.draw_chat_history(ui);
             ui.separator();
-            self.draw_input_bar(ui, dbus_client);
+            self.draw_input_bar(ui, dbus_client, gui_event_tx);
         });
     }
 
@@ -217,6 +225,34 @@ impl HudState {
                 if header_btn(ui, "\u{2699}", "Настройки профилей", false).clicked()
                 {
                     self.show_preferences = !self.show_preferences;
+                }
+
+                // Парковка курсора
+                let cursor_tip = if self.is_cursor_on_virtual {
+                    "Вернуть курсор на основной экран"
+                } else {
+                    "Запарковать курсор на виртуальном мониторе"
+                };
+                if header_btn(ui, "\u{1F5B1}", cursor_tip, self.is_cursor_on_virtual).clicked() {
+                    self.is_cursor_on_virtual = !self.is_cursor_on_virtual;
+                    if let Some(ref client) = dbus_client {
+                        let client_clone = client.clone();
+                        let on_virtual = self.is_cursor_on_virtual;
+                        tokio::spawn(async move {
+                            if on_virtual {
+                                if let Err(e) = client_clone.save_cursor_position().await {
+                                    eprintln!("Ошибка сохранения позиции курсора: {:?}", e);
+                                }
+                                if let Err(e) = client_clone.warp_to_virtual_monitor().await {
+                                    eprintln!("Ошибка перемещения курсора на виртуальный монитор: {:?}", e);
+                                }
+                            } else {
+                                if let Err(e) = client_clone.restore_cursor_position().await {
+                                    eprintln!("Ошибка восстановления позиции курсора: {:?}", e);
+                                }
+                            }
+                        });
+                    }
                 }
 
                 // Закрепить/Открепить
@@ -287,9 +323,12 @@ impl HudState {
         });
     }
 
-    /// Список сообщений чата
     fn draw_chat_history(&mut self, ui: &mut egui::Ui) {
-        let height = ui.available_height() - 48.0;
+        let mut extra_offset = 48.0;
+        if self.screenshot_texture.is_some() {
+            extra_offset += 72.0;
+        }
+        let height = ui.available_height() - extra_offset;
 
         egui::ScrollArea::vertical()
             .max_height(height)
@@ -353,7 +392,41 @@ impl HudState {
     }
 
     /// Панель ввода с кнопками OCR, ASR и отправки
-    fn draw_input_bar(&mut self, ui: &mut egui::Ui, dbus_client: &Option<Arc<DaemonClient>>) {
+    fn draw_input_bar(
+        &mut self,
+        ui: &mut egui::Ui,
+        dbus_client: &Option<Arc<DaemonClient>>,
+        gui_event_tx: Sender<GuiEvent>,
+    ) {
+        let mut remove_screenshot = false;
+        if let Some(ref texture) = self.screenshot_texture {
+            ui.vertical(|ui| {
+                ui.horizontal(|ui| {
+                    let size = texture.size_vec2();
+                    let aspect_ratio = size.x / size.y;
+                    let height = 60.0;
+                    let width = height * aspect_ratio;
+                    
+                    // Рисуем картинку с помощью egui::Image
+                    ui.add(egui::Image::new(texture).max_height(height).max_width(width));
+
+                    // Кнопка удаления прикрепленного скриншота
+                    if ui.button("❌").on_hover_text("Удалить скриншот").clicked() {
+                        remove_screenshot = true;
+                    }
+                });
+                ui.add_space(4.0);
+            });
+        }
+
+        if remove_screenshot {
+            if let Some(ref path) = self.attached_screenshot_path {
+                let _ = std::fs::remove_file(path);
+            }
+            self.attached_screenshot_path = None;
+            self.screenshot_texture = None;
+        }
+
         ui.horizontal(|ui| {
             // Кнопка скриншота (OCR)
             let ocr_btn = ui
@@ -367,52 +440,60 @@ impl HudState {
                     .corner_radius(6.0)
                     .min_size(egui::vec2(28.0, 28.0)),
                 )
-                .on_hover_text("Выделить область экрана и распознать текст");
+                .on_hover_text("Сделать скриншот виртуального монитора");
 
             if ocr_btn.clicked() {
+                tracing::info!("GUI: Нажата кнопка скриншота (фотоаппарат)");
                 if let Some(client) = dbus_client {
                     let client = client.clone();
                     self.is_generating = true;
+                    let tx = gui_event_tx.clone();
                     if let Some(task) = self.active_ocr_task.take() {
+                        tracing::info!("GUI: Предыдущая OCR задача отменена.");
                         task.abort();
                     }
                     self.active_ocr_task = Some(tokio::spawn(async move {
-                        use ashpd::desktop::screenshot::Screenshot;
-                        match Screenshot::request()
-                            .interactive(true)
-                            .modal(true)
-                            .send()
-                            .await
-                        {
-                            Ok(request) => match request.response() {
-                                Ok(response) => {
-                                    let uri = response.uri();
-                                    if let Ok(path) = uri.to_file_path() {
-                                        let path_str = path.to_string_lossy().to_string();
-                                        if let Err(e) =
-                                            client.trigger_ocr_from_file(&path_str).await
-                                        {
-                                            eprintln!(
-                                                "Ошибка вызова trigger_ocr_from_file: {:?}",
-                                                e
-                                            );
+                        tracing::info!("GUI: Вызов тихой скриншот-функции capture_virtual_screenshot() демона...");
+                        match client.capture_virtual_screenshot().await {
+                            Ok(path_str) => {
+                                tracing::info!("GUI: Скриншот успешно получен: {}", path_str);
+                                let _ = tx.send(GuiEvent::ScreenshotCaptured(path_str)).await;
+                            }
+                            Err(e) => {
+                                tracing::warn!("GUI: Тихий скриншот не удался ({:?}). Запуск интерактивного портала скриншотов...", e);
+                                use ashpd::desktop::screenshot::Screenshot;
+                                match Screenshot::request()
+                                    .interactive(true)
+                                    .modal(true)
+                                    .send()
+                                    .await
+                                {
+                                    Ok(request) => match request.response() {
+                                        Ok(response) => {
+                                            let uri = response.uri();
+                                            if let Ok(path) = uri.to_file_path() {
+                                                let path_str = path.to_string_lossy().to_string();
+                                                tracing::info!("GUI: Интерактивный скриншот сохранен в: {}", path_str);
+                                                let _ = tx.send(GuiEvent::ScreenshotCaptured(path_str)).await;
+                                            } else {
+                                                let _ = tx.send(GuiEvent::Error("Не удалось получить локальный путь из URI скриншота".to_string())).await;
+                                            }
                                         }
-                                    } else {
-                                        eprintln!(
-                                            "Не удалось получить локальный путь из URI: {:?}",
-                                            uri
-                                        );
+                                        Err(err) => {
+                                            tracing::error!("GUI: Ошибка ответа Screenshot: {:?}", err);
+                                            let _ = tx.send(GuiEvent::Error(format!("Ошибка ответа Screenshot: {:?}", err))).await;
+                                        }
+                                    },
+                                    Err(err) => {
+                                        tracing::error!("GUI: Ошибка запроса Screenshot: {:?}", err);
+                                        let _ = tx.send(GuiEvent::Error(format!("Ошибка запроса Screenshot: {:?}", err))).await;
                                     }
                                 }
-                                Err(e) => {
-                                    eprintln!("Ошибка ответа Screenshot: {:?}", e);
-                                }
-                            },
-                            Err(e) => {
-                                eprintln!("Ошибка запроса Screenshot: {:?}", e);
                             }
                         }
                     }));
+                } else {
+                    tracing::warn!("GUI: Не удалось сделать скриншот, так как D-Bus клиент не подключен.");
                 }
             }
 
@@ -483,6 +564,9 @@ impl HudState {
             let enter_pressed =
                 text_edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
 
+            let has_input = !self.input_text.trim().is_empty();
+            let has_screenshot = self.attached_screenshot_path.is_some();
+
             if is_stop {
                 if btn_clicked {
                     self.is_generating = false;
@@ -502,24 +586,97 @@ impl HudState {
                         });
                     }
                 }
-            } else if (btn_clicked || enter_pressed) && !self.input_text.trim().is_empty() {
+            } else if (btn_clicked || enter_pressed) && (has_input || has_screenshot) {
                 let text = self.input_text.trim().to_string();
-                self.chat_messages.push(("user".to_string(), text.clone()));
                 self.input_text.clear();
                 self.is_generating = true;
 
+                tracing::info!("GUI: Отправка запроса пользователем. Текст: {:?}, Скриншот прикреплен: {}", text, has_screenshot);
+
+                // Отображаем сообщение в истории чата
+                let display_msg = if has_screenshot {
+                    if text.is_empty() {
+                        "[Отправлен скриншот]".to_string()
+                    } else {
+                        format!("{} [Скриншот]", text)
+                    }
+                } else {
+                    text.clone()
+                };
+                self.chat_messages.push(("user".to_string(), display_msg));
+
                 if let Some(client) = dbus_client {
                     let client = client.clone();
+                    let attached_path = self.attached_screenshot_path.take();
+                    self.screenshot_texture = None; // Очищаем превью
+
                     if let Some(task) = self.active_chat_task.take() {
+                        tracing::info!("GUI: Отмена предыдущей фоновой задачи чата.");
                         task.abort();
                     }
                     self.active_chat_task = Some(tokio::spawn(async move {
-                        let _ = client.send_chat_message(&text).await;
+                        tracing::info!("GUI: Запуск фоновой задачи для подготовки и отправки промпта...");
+                        let mut final_prompt = text;
+                        if let Some(path) = attached_path {
+                            tracing::info!("GUI: Запуск фонового OCR для скриншота перед отправкой: {}", path);
+                            match client.run_ocr_on_file(&path).await {
+                                Ok(ocr_text) => {
+                                    tracing::info!("GUI: OCR успешно выполнено. Символов распознано: {}", ocr_text.len());
+                                    if final_prompt.is_empty() {
+                                        final_prompt = format!("[Распознанный текст со скриншота]:\n{}", ocr_text);
+                                    } else {
+                                        final_prompt = format!("{}\n\n[Распознанный текст со скриншота]:\n{}", final_prompt, ocr_text);
+                                    }
+                                }
+                                Err(e) => {
+                                    tracing::error!("GUI: Ошибка распознавания прикрепленного скриншота: {:?}", e);
+                                }
+                            }
+                            // Удаляем временный файл после отправки
+                            tracing::info!("GUI: Удаление временного файла скриншота: {}", path);
+                            let _ = std::fs::remove_file(path);
+                        }
+
+                        if !final_prompt.trim().is_empty() {
+                            tracing::info!("GUI: Вызов D-Bus метода send_chat_message для отправки промпта в LLM...");
+                            if let Err(e) = client.send_chat_message(&final_prompt).await {
+                                tracing::error!("GUI: Ошибка отправки сообщения в чат LLM через D-Bus: {:?}", e);
+                            }
+                        } else {
+                            tracing::warn!("GUI: Итоговый промпт пуст, отправка отменена.");
+                        }
                     }));
                 }
             }
         });
     }
+}
+
+fn load_texture_from_path(
+    ctx: &egui::Context,
+    path_str: &str,
+) -> Option<egui::TextureHandle> {
+    let path = std::path::Path::new(path_str);
+    if let Ok(color_image) = load_image_from_path(path) {
+        Some(ctx.load_texture(
+            "screenshot-preview",
+            color_image,
+            egui::TextureOptions::default(),
+        ))
+    } else {
+        None
+    }
+}
+
+fn load_image_from_path(path: &std::path::Path) -> Result<egui::ColorImage, image::ImageError> {
+    let image = image::open(path)?;
+    let size = [image.width() as usize, image.height() as usize];
+    let image_buffer = image.to_rgba8();
+    let pixels = image_buffer.as_raw();
+    Ok(egui::ColorImage::from_rgba_unmultiplied(
+        size,
+        pixels,
+    ))
 }
 
 /// Кнопка заголовка HUD (текстовая иконка)

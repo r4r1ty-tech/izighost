@@ -19,6 +19,7 @@ pub enum GuiEvent {
     Error(String),
     ExtensionNotLoaded,
     ChatHistoryLoaded(Vec<(String, String)>),
+    ScreenshotCaptured(String),
 }
 
 pub struct PreferencesState {
@@ -164,6 +165,7 @@ impl PreferencesState {
             }
             GuiEvent::ExtensionNotLoaded => {}
             GuiEvent::ChatHistoryLoaded(_) => {}
+            GuiEvent::ScreenshotCaptured(_) => {}
         }
     }
 
