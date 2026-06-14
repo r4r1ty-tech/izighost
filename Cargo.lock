@@ -2170,9 +2170,11 @@ name = "izighost"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "arboard",
  "ashpd",
  "eframe",
  "futures",
+ "image",
  "izighost-common",
  "serde",
  "serde_json",
@@ -2201,6 +2203,7 @@ name = "izighost-daemon"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "base64",
  "chrono",
  "clap",
  "futures",
