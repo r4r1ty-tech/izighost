@@ -10,7 +10,7 @@ pub struct DaemonInterface {
     context_store: ContextStore,
     rvms_manager: RvmsManager,
     _config: DaemonConfig,
-    recording_state: tokio::sync::Mutex<Option<(std::process::Child, std::path::PathBuf)>>,
+    recording_state: tokio::sync::Mutex<Option<(tokio::process::Child, std::path::PathBuf)>>,
 }
 
 impl DaemonInterface {
@@ -26,6 +26,31 @@ impl DaemonInterface {
             rvms_manager,
             _config: config,
             recording_state: tokio::sync::Mutex::new(None),
+        }
+    }
+
+    pub async fn shutdown(&self) {
+        tracing::info!("Запуск graceful shutdown демона...");
+        if let Err(e) = self.rvms_manager.stop().await {
+            tracing::error!("Ошибка при остановке RVMS: {}", e);
+        }
+        let mut state = self.recording_state.lock().await;
+        if let Some((mut child, path)) = state.take() {
+            tracing::info!("Остановка фонового процесса записи звука...");
+            if let Some(pid) = child.id() {
+                match child.try_wait() {
+                    Ok(None) => {
+                        // SAFETY: Мы отправляем сигнал SIGINT нашему активному дочернему процессу gst-launch-1.0.
+                        // Перед отправкой проверяем статус с помощью try_wait(), чтобы избежать гонки PID.
+                        unsafe {
+                            libc::kill(pid as libc::pid_t, libc::SIGINT);
+                        }
+                        let _ = child.wait().await;
+                    }
+                    _ => {}
+                }
+            }
+            let _ = tokio::fs::remove_file(&path).await;
         }
     }
 }
@@ -210,14 +235,14 @@ impl DaemonInterface {
             let mut state = self.recording_state.lock().await;
             if let Some((mut child, path)) = state.take() {
                 tracing::warn!("Остановка зависшей записи: {:?}", path);
-                let _ = child.kill();
-                let _ = child.wait();
-                let _ = std::fs::remove_file(&path);
+                let _ = child.kill().await;
+                let _ = child.wait().await;
+                let _ = tokio::fs::remove_file(&path).await;
             }
         }
 
         // Запуск GStreamer для записи в 16кГц 16-бит моно PCM WAV
-        let child = std::process::Command::new("gst-launch-1.0")
+        let child = tokio::process::Command::new("gst-launch-1.0")
             .arg("autoaudiosrc")
             .arg("!")
             .arg("audioconvert")
@@ -259,13 +284,26 @@ impl DaemonInterface {
         tracing::info!("Остановка записи звука...");
 
         // Отправляем SIGINT (kill -2), чтобы gst-launch завершил запись с записью wav-заголовков
-        let pid = child.id();
-        unsafe {
-            libc::kill(pid as libc::pid_t, libc::SIGINT);
+        if let Some(pid) = child.id() {
+            // SAFETY: Мы отправляем сигнал SIGINT нашему активному дочернему процессу gst-launch-1.0.
+            // Перед отправкой проверяем статус с помощью try_wait(), чтобы избежать гонки PID.
+            match child.try_wait() {
+                Ok(None) => {
+                    unsafe {
+                        libc::kill(pid as libc::pid_t, libc::SIGINT);
+                    }
+                }
+                Ok(Some(_status)) => {
+                    tracing::info!("Запись звука gst-launch уже завершилась");
+                }
+                Err(e) => {
+                    tracing::error!("Ошибка при проверке статуса записи звука: {:?}", e);
+                }
+            }
         }
 
-        // Ожидаем завершения процесса
-        let _ = child.wait();
+        // Ожидаем завершения процесса асинхронно
+        let _ = child.wait().await;
 
         // Загружаем профиль и API-ключ для распознавания
         let profile = self.context_store.get_active_profile().await;
@@ -292,7 +330,7 @@ impl DaemonInterface {
             let path_clone = path.clone();
             let result = crate::audio::transcribe_audio(&path_clone, profile.as_ref(), &api_key).await;
             
-            let _ = std::fs::remove_file(&path); // Очищаем временный аудиофайл в любом случае
+            let _ = tokio::fs::remove_file(&path).await; // Очищаем временный аудиофайл в любом случае
 
             match result {
                 Ok(text) => {

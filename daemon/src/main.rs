@@ -44,8 +44,31 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         izighost_common::dbus::DBUS_OBJECT_PATH
     );
 
-    // Ожидаем завершения работы
-    std::future::pending::<()>().await;
+    // Ожидаем завершения работы по сигналам SIGINT / SIGTERM
+    tokio::select! {
+        _ = tokio::signal::ctrl_c() => {
+            tracing::info!("Получен сигнал SIGINT (Ctrl+C). Завершение работы...");
+        }
+        _ = async {
+            #[cfg(unix)]
+            {
+                let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()).unwrap();
+                sigterm.recv().await;
+            }
+            #[cfg(not(unix))]
+            {
+                std::future::pending::<()>().await;
+            }
+        } => {
+            tracing::info!("Получен сигнал SIGTERM. Завершение работы...");
+        }
+    }
+
+    // Вызываем Graceful Shutdown интерфейса
+    let object_server = _conn.object_server();
+    if let Ok(interface_ref) = object_server.interface::<_, DaemonInterface>(izighost_common::dbus::DBUS_OBJECT_PATH).await {
+        interface_ref.get().await.shutdown().await;
+    }
 
     Ok(())
 }
