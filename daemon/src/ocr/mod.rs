@@ -1,6 +1,17 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+struct DeleteOnDrop(Option<PathBuf>);
+impl Drop for DeleteOnDrop {
+    fn drop(&mut self) {
+        if let Some(ref path) = self.0 {
+            if path.exists() {
+                let _ = std::fs::remove_file(path);
+            }
+        }
+    }
+}
+
 /// Захват скриншота с виртуального монитора через GStreamer и pipewiresrc.
 /// Сохраняет временный PNG файл и возвращает путь к нему.
 pub fn capture_screenshot(node_id: u32) -> Result<PathBuf, anyhow::Error> {
@@ -150,6 +161,8 @@ pub async fn run_ocr_on_file(
     img_path: PathBuf,
     profile: Option<izighost_common::Profile>,
 ) -> Result<String, anyhow::Error> {
+    let _img_guard = DeleteOnDrop(Some(img_path.clone()));
+
     // 1. Извлекаем API ключ из Keyring для Vision конфига
     let api_key = if let Some(ref p) = profile {
         if !p.id.is_empty() {
@@ -190,8 +203,9 @@ pub async fn run_ocr_on_file(
     Ok(ocr_result)
 }
 
-/// Вспомогательный метод для запуска локального OCR пайплайна Tesseract
 async fn run_local_tesseract_ocr_pipeline(img_path: PathBuf) -> Result<String, anyhow::Error> {
+    let _img_guard = DeleteOnDrop(Some(img_path.clone()));
+
     // 1. Обеспечиваем наличие языковых файлов rus/eng
     let tessdata_dir = match ensure_tessdata_downloaded().await {
         Ok(dir) => Some(dir),
@@ -205,28 +219,12 @@ async fn run_local_tesseract_ocr_pipeline(img_path: PathBuf) -> Result<String, a
     };
 
     // 2. Предобрабатываем
-    let preprocessed_img_path = match preprocess_image(&img_path) {
-        Ok(path) => {
-            let _ = std::fs::remove_file(&img_path);
-            path
-        }
-        Err(e) => {
-            let _ = std::fs::remove_file(&img_path);
-            return Err(e);
-        }
-    };
+    let preprocessed_img_path = preprocess_image(&img_path)?;
+    let _ = std::fs::remove_file(&img_path);
 
     // 3. Запускаем OCR
-    let ocr_result = match run_ocr(&preprocessed_img_path, tessdata_dir) {
-        Ok(text) => {
-            let _ = std::fs::remove_file(&preprocessed_img_path);
-            text
-        }
-        Err(e) => {
-            let _ = std::fs::remove_file(&preprocessed_img_path);
-            return Err(e);
-        }
-    };
+    let _prep_guard = DeleteOnDrop(Some(preprocessed_img_path.clone()));
+    let ocr_result = run_ocr(&preprocessed_img_path, tessdata_dir)?;
 
     Ok(ocr_result)
 }
