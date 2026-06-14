@@ -9,6 +9,7 @@ pub enum DaemonSignal {
     OcrCompleted(String),
     AsrCompleted(String),
     ErrorOccurred(String),
+    ScreenshotCaptured(String),
 }
 
 #[proxy(
@@ -22,6 +23,8 @@ pub trait Daemon {
     async fn send_chat_message(&self, text: &str) -> zbus::Result<()>;
     async fn trigger_ocr(&self) -> zbus::Result<()>;
     async fn trigger_ocr_from_file(&self, file_path: &str) -> zbus::Result<()>;
+    async fn capture_virtual_screenshot(&self) -> zbus::Result<String>;
+    async fn run_ocr_on_file(&self, file_path: &str) -> zbus::Result<String>;
     async fn start_listening(&self) -> zbus::Result<()>;
     async fn stop_listening(&self) -> zbus::Result<()>;
     async fn list_profiles(&self) -> zbus::Result<Vec<String>>;
@@ -47,6 +50,9 @@ pub trait Daemon {
 
     #[zbus(signal)]
     async fn error_occurred(&self, message: String) -> zbus::Result<()>;
+
+    #[zbus(signal)]
+    async fn screenshot_captured(&self, filepath: String) -> zbus::Result<()>;
 }
 
 #[proxy(
@@ -57,18 +63,31 @@ pub trait Daemon {
 pub trait WindowPinBridge {
     async fn pin_window_by_pid(&self, pid: u32) -> zbus::Result<bool>;
     async fn unpin_window_by_pid(&self, pid: u32) -> zbus::Result<bool>;
+    async fn capture_screenshot(&self, monitor_index: u32, filepath: &str) -> zbus::Result<bool>;
+    async fn capture_virtual_monitor(&self, filepath: &str) -> zbus::Result<bool>;
+    async fn warp_cursor(&self, x: i32, y: i32) -> zbus::Result<bool>;
+    async fn save_cursor_position(&self) -> zbus::Result<bool>;
+    async fn restore_cursor_position(&self) -> zbus::Result<bool>;
+    async fn warp_to_monitor(&self, monitor_index: u32) -> zbus::Result<bool>;
+    async fn warp_to_virtual_monitor(&self) -> zbus::Result<bool>;
 }
 
 pub struct DaemonClient {
     proxy: DaemonProxy<'static>,
-    pin_proxy: WindowPinBridgeProxy<'static>,
+    pin_proxy: Option<WindowPinBridgeProxy<'static>>,
 }
 
 impl DaemonClient {
     pub async fn connect() -> zbus::Result<(Self, Receiver<DaemonSignal>)> {
         let conn = Connection::session().await?;
         let proxy = DaemonProxy::new(&conn).await?;
-        let pin_proxy = WindowPinBridgeProxy::new(&conn).await?;
+        let pin_proxy = match WindowPinBridgeProxy::new(&conn).await {
+            Ok(p) => Some(p),
+            Err(e) => {
+                tracing::warn!("Failed to connect to WindowPinBridge GNOME extension: {:?}", e);
+                None
+            }
+        };
         let (tx, rx) = tokio::sync::mpsc::channel(100);
 
         // Запуск фоновой задачи для прослушивания сигналов с автоматическим переподключением
@@ -99,6 +118,14 @@ impl DaemonClient {
 
     pub async fn trigger_ocr_from_file(&self, file_path: &str) -> zbus::Result<()> {
         self.proxy.trigger_ocr_from_file(file_path).await
+    }
+
+    pub async fn capture_virtual_screenshot(&self) -> zbus::Result<String> {
+        self.proxy.capture_virtual_screenshot().await
+    }
+
+    pub async fn run_ocr_on_file(&self, file_path: &str) -> zbus::Result<String> {
+        self.proxy.run_ocr_on_file(file_path).await
     }
 
     pub async fn start_listening(&self) -> zbus::Result<()> {
@@ -142,11 +169,79 @@ impl DaemonClient {
     }
 
     pub async fn pin_window_by_pid(&self, pid: u32) -> zbus::Result<bool> {
-        self.pin_proxy.pin_window_by_pid(pid).await
+        if let Some(ref pin_proxy) = self.pin_proxy {
+            pin_proxy.pin_window_by_pid(pid).await
+        } else {
+            Ok(false)
+        }
     }
 
     pub async fn unpin_window_by_pid(&self, pid: u32) -> zbus::Result<bool> {
-        self.pin_proxy.unpin_window_by_pid(pid).await
+        if let Some(ref pin_proxy) = self.pin_proxy {
+            pin_proxy.unpin_window_by_pid(pid).await
+        } else {
+            Ok(false)
+        }
+    }
+
+    #[allow(dead_code)]
+    pub async fn capture_screenshot(&self, monitor_index: u32, filepath: &str) -> zbus::Result<bool> {
+        if let Some(ref pin_proxy) = self.pin_proxy {
+            pin_proxy.capture_screenshot(monitor_index, filepath).await
+        } else {
+            Ok(false)
+        }
+    }
+
+    #[allow(dead_code)]
+    pub async fn capture_virtual_monitor(&self, filepath: &str) -> zbus::Result<bool> {
+        if let Some(ref pin_proxy) = self.pin_proxy {
+            pin_proxy.capture_virtual_monitor(filepath).await
+        } else {
+            Ok(false)
+        }
+    }
+
+    #[allow(dead_code)]
+    pub async fn warp_cursor(&self, x: i32, y: i32) -> zbus::Result<bool> {
+        if let Some(ref pin_proxy) = self.pin_proxy {
+            pin_proxy.warp_cursor(x, y).await
+        } else {
+            Ok(false)
+        }
+    }
+
+    pub async fn save_cursor_position(&self) -> zbus::Result<bool> {
+        if let Some(ref pin_proxy) = self.pin_proxy {
+            pin_proxy.save_cursor_position().await
+        } else {
+            Ok(false)
+        }
+    }
+
+    pub async fn restore_cursor_position(&self) -> zbus::Result<bool> {
+        if let Some(ref pin_proxy) = self.pin_proxy {
+            pin_proxy.restore_cursor_position().await
+        } else {
+            Ok(false)
+        }
+    }
+
+    #[allow(dead_code)]
+    pub async fn warp_to_monitor(&self, monitor_index: u32) -> zbus::Result<bool> {
+        if let Some(ref pin_proxy) = self.pin_proxy {
+            pin_proxy.warp_to_monitor(monitor_index).await
+        } else {
+            Ok(false)
+        }
+    }
+
+    pub async fn warp_to_virtual_monitor(&self) -> zbus::Result<bool> {
+        if let Some(ref pin_proxy) = self.pin_proxy {
+            pin_proxy.warp_to_virtual_monitor().await
+        } else {
+            Ok(false)
+        }
     }
 }
 
@@ -165,9 +260,10 @@ async fn listen_to_signals(
                 let ocr_completeds_res = proxy.receive_ocr_completed().await;
                 let asr_completeds_res = proxy.receive_asr_completed().await;
                 let error_occurreds_res = proxy.receive_error_occurred().await;
+                let screenshot_captureds_res = proxy.receive_screenshot_captured().await;
 
-                if let (Ok(mut chat_chunks), Ok(mut chat_completeds), Ok(mut ocr_completeds), Ok(mut asr_completeds), Ok(mut error_occurreds)) =
-                    (chat_chunks_res, chat_completeds_res, ocr_completeds_res, asr_completeds_res, error_occurreds_res)
+                if let (Ok(mut chat_chunks), Ok(mut chat_completeds), Ok(mut ocr_completeds), Ok(mut asr_completeds), Ok(mut error_occurreds), Ok(mut screenshot_captureds)) =
+                    (chat_chunks_res, chat_completeds_res, ocr_completeds_res, asr_completeds_res, error_occurreds_res, screenshot_captureds_res)
                 {
                     tracing::info!("Успешно подключились к сигналам D-Bus демона.");
                     delay = std::time::Duration::from_secs(1); // сброс задержки
@@ -217,6 +313,16 @@ async fn listen_to_signals(
                                     Some(msg) => {
                                         if let Ok(args) = msg.args() {
                                             if tx.send(DaemonSignal::ErrorOccurred(args.message)).await.is_err() { return; }
+                                        }
+                                    }
+                                    None => break,
+                                }
+                            }
+                            msg = screenshot_captureds.next() => {
+                                match msg {
+                                    Some(msg) => {
+                                        if let Ok(args) = msg.args() {
+                                            if tx.send(DaemonSignal::ScreenshotCaptured(args.filepath)).await.is_err() { return; }
                                         }
                                     }
                                     None => break,
