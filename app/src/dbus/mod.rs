@@ -1,5 +1,5 @@
 use izighost_common::Profile;
-use tokio::sync::mpsc::{Sender, Receiver};
+use tokio::sync::mpsc::{Receiver, Sender};
 use zbus::{proxy, Connection};
 
 #[derive(Clone, Debug)]
@@ -84,7 +84,10 @@ impl DaemonClient {
         let pin_proxy = match WindowPinBridgeProxy::new(&conn).await {
             Ok(p) => Some(p),
             Err(e) => {
-                tracing::warn!("Failed to connect to WindowPinBridge GNOME extension: {:?}", e);
+                tracing::warn!(
+                    "Failed to connect to WindowPinBridge GNOME extension: {:?}",
+                    e
+                );
                 None
             }
         };
@@ -116,6 +119,7 @@ impl DaemonClient {
         self.proxy.trigger_ocr().await
     }
 
+    #[allow(dead_code)]
     pub async fn trigger_ocr_from_file(&self, file_path: &str) -> zbus::Result<()> {
         self.proxy.trigger_ocr_from_file(file_path).await
     }
@@ -185,7 +189,11 @@ impl DaemonClient {
     }
 
     #[allow(dead_code)]
-    pub async fn capture_screenshot(&self, monitor_index: u32, filepath: &str) -> zbus::Result<bool> {
+    pub async fn capture_screenshot(
+        &self,
+        monitor_index: u32,
+        filepath: &str,
+    ) -> zbus::Result<bool> {
         if let Some(ref pin_proxy) = self.pin_proxy {
             pin_proxy.capture_screenshot(monitor_index, filepath).await
         } else {
@@ -245,10 +253,7 @@ impl DaemonClient {
     }
 }
 
-async fn listen_to_signals(
-    conn: Connection,
-    tx: Sender<DaemonSignal>,
-) {
+async fn listen_to_signals(conn: Connection, tx: Sender<DaemonSignal>) {
     use futures::StreamExt;
     let mut delay = std::time::Duration::from_secs(1);
 
@@ -262,9 +267,21 @@ async fn listen_to_signals(
                 let error_occurreds_res = proxy.receive_error_occurred().await;
                 let screenshot_captureds_res = proxy.receive_screenshot_captured().await;
 
-                if let (Ok(mut chat_chunks), Ok(mut chat_completeds), Ok(mut ocr_completeds), Ok(mut asr_completeds), Ok(mut error_occurreds), Ok(mut screenshot_captureds)) =
-                    (chat_chunks_res, chat_completeds_res, ocr_completeds_res, asr_completeds_res, error_occurreds_res, screenshot_captureds_res)
-                {
+                if let (
+                    Ok(mut chat_chunks),
+                    Ok(mut chat_completeds),
+                    Ok(mut ocr_completeds),
+                    Ok(mut asr_completeds),
+                    Ok(mut error_occurreds),
+                    Ok(mut screenshot_captureds),
+                ) = (
+                    chat_chunks_res,
+                    chat_completeds_res,
+                    ocr_completeds_res,
+                    asr_completeds_res,
+                    error_occurreds_res,
+                    screenshot_captureds_res,
+                ) {
                     tracing::info!("Успешно подключились к сигналам D-Bus демона.");
                     delay = std::time::Duration::from_secs(1); // сброс задержки
 
@@ -330,13 +347,19 @@ async fn listen_to_signals(
                             }
                         }
                     }
-                    tracing::warn!("Соединение с сигналами D-Bus потеряно. Попытка переподключения...");
+                    tracing::warn!(
+                        "Соединение с сигналами D-Bus потеряно. Попытка переподключения..."
+                    );
                 } else {
                     tracing::warn!("Не удалось подписаться на один или несколько сигналов D-Bus.");
                 }
             }
             Err(e) => {
-                tracing::warn!("Не удалось получить D-Bus прокси для сигналов: {:?}. Повтор через {:?}", e, delay);
+                tracing::warn!(
+                    "Не удалось получить D-Bus прокси для сигналов: {:?}. Повтор через {:?}",
+                    e,
+                    delay
+                );
             }
         }
 

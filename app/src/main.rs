@@ -1,7 +1,7 @@
 use eframe::egui;
 use eframe::egui::Color32;
 use std::sync::Arc;
-use tokio::sync::mpsc::{Sender, Receiver};
+use tokio::sync::mpsc::{Receiver, Sender};
 
 mod dbus;
 mod hotkeys;
@@ -113,13 +113,17 @@ fn create_extension_zip(
     zip_path: &std::path::Path,
     metadata: &str,
     extension_js: &str,
- ) -> Result<(), std::io::Error> {
+) -> Result<(), std::io::Error> {
     let tmp_dir = zip_path
         .parent()
         .ok_or_else(|| std::io::Error::other("no parent"))?
         .join("ext_files");
     if let Err(e) = std::fs::create_dir_all(&tmp_dir) {
-        tracing::error!("Failed to create temporary directory {:?}: {:?}", tmp_dir, e);
+        tracing::error!(
+            "Failed to create temporary directory {:?}: {:?}",
+            tmp_dir,
+            e
+        );
     }
 
     std::fs::write(tmp_dir.join("metadata.json"), metadata)?;
@@ -142,7 +146,11 @@ fn create_extension_zip(
         .status()?;
 
     if let Err(e) = std::fs::remove_dir_all(&tmp_dir) {
-        tracing::warn!("Failed to remove temporary directory {:?}: {:?}", tmp_dir, e);
+        tracing::warn!(
+            "Failed to remove temporary directory {:?}: {:?}",
+            tmp_dir,
+            e
+        );
     }
 
     if status.success() {
@@ -224,7 +232,9 @@ fn apply_dark_theme(ctx: &egui::Context) {
 fn main() -> Result<(), eframe::Error> {
     // Инициализируем логирование
     let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
-    let logs_dir = std::path::PathBuf::from(home).join(".cache/izighost/logs").join("client");
+    let logs_dir = std::path::PathBuf::from(home)
+        .join(".cache/izighost/logs")
+        .join("client");
     let _ = std::fs::create_dir_all(&logs_dir);
 
     let file_appender = tracing_appender::rolling::daily(&logs_dir, "izighost.log");
@@ -234,8 +244,7 @@ fn main() -> Result<(), eframe::Error> {
     let filter = tracing_subscriber::EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
 
-    let console_layer = tracing_subscriber::fmt::layer()
-        .with_writer(std::io::stderr);
+    let console_layer = tracing_subscriber::fmt::layer().with_writer(std::io::stderr);
     let file_layer = tracing_subscriber::fmt::layer()
         .with_writer(non_blocking)
         .with_ansi(false);
@@ -293,7 +302,11 @@ fn main() -> Result<(), eframe::Error> {
         options,
         Box::new(move |cc| {
             apply_dark_theme(&cc.egui_ctx);
-            Ok(Box::new(IziGhostApp::new(dbus_client, signal_rx, cc.egui_ctx.clone())))
+            Ok(Box::new(IziGhostApp::new(
+                dbus_client,
+                signal_rx,
+                cc.egui_ctx.clone(),
+            )))
         }),
     )
 }
@@ -418,7 +431,12 @@ impl IziGhostApp {
                                     let _ = tx.send(GuiEvent::ChatHistoryLoaded(history)).await;
                                 }
                                 Err(e) => {
-                                    let _ = tx.send(GuiEvent::Error(format!("Ошибка загрузки истории чата: {}", e))).await;
+                                    let _ = tx
+                                        .send(GuiEvent::Error(format!(
+                                            "Ошибка загрузки истории чата: {}",
+                                            e
+                                        )))
+                                        .await;
                                 }
                             }
                         });
@@ -433,6 +451,8 @@ impl IziGhostApp {
                 GuiEvent::Error(msg) => {
                     self.hud_state.is_generating = false;
                     self.hud_state.is_listening = false;
+                    self.hud_state.is_taking_screenshot = false;
+                    self.hud_state.is_transcribing = false;
                     self.preferences_state
                         .handle_event(GuiEvent::Error(msg), &self.dbus_client);
                 }
@@ -453,19 +473,23 @@ impl eframe::App for IziGhostApp {
 
         // 1. Отрисовка HUD в главном прозрачном окне
         egui::CentralPanel::default()
-            .frame(egui::Frame::NONE.fill(if self.show_onboarding { window::theme::BG_PRIMARY } else { Color32::TRANSPARENT }))
+            .frame(egui::Frame::NONE.fill(if self.show_onboarding {
+                window::theme::BG_PRIMARY
+            } else {
+                Color32::TRANSPARENT
+            }))
             .show_inside(ui, |ui| {
                 if self.show_onboarding {
                     let event_tx = self.gui_event_tx.clone();
-                    self.onboarding_state.draw(
-                        ui,
-                        &self.dbus_client,
-                        event_tx,
-                    );
+                    self.onboarding_state.draw(ui, &self.dbus_client, event_tx);
                 } else {
                     let event_tx = self.gui_event_tx.clone();
-                    self.hud_state
-                        .draw(ui, &self.dbus_client, &self.preferences_state.active_id, event_tx);
+                    self.hud_state.draw(
+                        ui,
+                        &self.dbus_client,
+                        &self.preferences_state.active_id,
+                        event_tx,
+                    );
                 }
             });
 
@@ -504,7 +528,8 @@ impl eframe::App for IziGhostApp {
 
         // Включение repaint_after для анимации/обновлений, если запущены фоновые процессы (ASR/LLM/etc.)
         if self.hud_state.is_generating || self.hud_state.is_listening {
-            ui.ctx().request_repaint_after(std::time::Duration::from_millis(200));
+            ui.ctx()
+                .request_repaint_after(std::time::Duration::from_millis(200));
         }
     }
 }

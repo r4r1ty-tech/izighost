@@ -1,9 +1,9 @@
+use crate::dbus::DaemonClient;
+use crate::window::preferences::GuiEvent;
+use crate::window::theme;
 use eframe::egui;
 use eframe::egui::{RichText, Vec2};
 use izighost_common::Profile;
-use crate::window::theme;
-use crate::dbus::DaemonClient;
-use crate::window::preferences::GuiEvent;
 use std::sync::Arc;
 use tokio::sync::mpsc::Sender;
 
@@ -91,7 +91,7 @@ impl OnboardingState {
         ui.vertical_centered(|ui| {
             ui.add_space(10.0);
             ui.label(
-                RichText::new("IziGhost \u{1F47B}")
+                RichText::new("IziGhost")
                     .strong()
                     .size(24.0)
                     .color(theme::ACCENT),
@@ -144,31 +144,30 @@ impl OnboardingState {
 
         // Навигационные кнопки
         ui.horizontal(|ui| {
-            if self.current_step != OnboardingStep::Welcome && self.current_step != OnboardingStep::Finished {
-                if ui
+            if self.current_step != OnboardingStep::Welcome
+                && self.current_step != OnboardingStep::Finished
+                && ui
                     .add(
                         egui::Button::new(
-                            RichText::new("\u{2B05} Назад")
-                                .strong()
-                                .color(theme::TEXT_PRIMARY),
+                            RichText::new("Назад").strong().color(theme::TEXT_PRIMARY),
                         )
                         .fill(theme::BG_BUTTON)
                         .corner_radius(6.0)
                         .min_size(Vec2::new(100.0, 32.0)),
                     )
                     .clicked()
-                {
-                    self.prev_step();
-                }
+            {
+                self.prev_step();
             }
 
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                match self.current_step {
+            ui.with_layout(
+                egui::Layout::right_to_left(egui::Align::Center),
+                |ui| match self.current_step {
                     OnboardingStep::Finished => {
                         let btn = ui.add_enabled(
                             !self.is_saving,
                             egui::Button::new(
-                                RichText::new("Начать работу \u{27A4}")
+                                RichText::new("Начать работу")
                                     .strong()
                                     .color(theme::TEXT_PRIMARY),
                             )
@@ -182,16 +181,14 @@ impl OnboardingState {
                     }
                     _ => {
                         let btn_text = if self.current_step == OnboardingStep::Welcome {
-                            "Начать \u{27A4}"
+                            "Начать"
                         } else {
-                            "Далее \u{27A4}"
+                            "Далее"
                         };
                         if ui
                             .add(
                                 egui::Button::new(
-                                    RichText::new(btn_text)
-                                        .strong()
-                                        .color(theme::TEXT_PRIMARY),
+                                    RichText::new(btn_text).strong().color(theme::TEXT_PRIMARY),
                                 )
                                 .fill(theme::ACCENT)
                                 .corner_radius(6.0)
@@ -202,8 +199,8 @@ impl OnboardingState {
                             self.next_step();
                         }
                     }
-                }
-            });
+                },
+            );
         });
     }
 
@@ -277,8 +274,8 @@ impl OnboardingState {
                     ui.label(RichText::new(desc).color(theme::TEXT_SECONDARY).size(11.0));
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         match status {
-                            Some(true) => ui.label(RichText::new("\u{2714} Установлен").color(theme::GREEN)),
-                            _ => ui.label(RichText::new("\u{2718} Не найден").color(theme::RED)),
+                            Some(true) => ui.label(RichText::new("Да").color(theme::GREEN)),
+                            _ => ui.label(RichText::new("Нет").color(theme::RED)),
                         };
                     });
                 });
@@ -304,14 +301,16 @@ impl OnboardingState {
             ui.label(
                 RichText::new("Задайте имя и первоначальные инструкции для вашего ассистента.")
                     .color(theme::TEXT_MUTED)
-                    .size(10.5)
+                    .size(10.5),
             );
             ui.add_space(8.0);
 
             theme::form_row(ui, "Имя профиля:", &mut self.profile_name);
             ui.add_space(8.0);
 
-            ui.label(RichText::new("Системный промпт (роль ассистента):").color(theme::TEXT_SECONDARY));
+            ui.label(
+                RichText::new("Системный промпт (роль ассистента):").color(theme::TEXT_SECONDARY),
+            );
             ui.add(
                 egui::TextEdit::multiline(&mut self.system_prompt)
                     .desired_rows(4)
@@ -331,7 +330,7 @@ impl OnboardingState {
             );
             ui.add_space(8.0);
             ui.label(
-                RichText::new("После входа вы сможете:\n\u{2022} Запустить виртуальный экран в окне настроек.\n\u{2022} Пользоваться OCR скриншотов по кнопке экрана или вставкой Ctrl+V.\n\u{2022} Надиктовывать вопросы голосом через микрофон.")
+                RichText::new("После входа вы сможете:\n- Запустить виртуальный экран в окне настроек.\n- Пользоваться OCR скриншотов по кнопке экрана или вставкой Ctrl+V.\n- Надиктовывать вопросы голосом через микрофон.")
                     .color(theme::TEXT_SECONDARY)
                     .size(11.0)
             );
@@ -419,15 +418,22 @@ impl OnboardingState {
                 match client.save_profile(&profile).await {
                     Ok(saved) => {
                         let _ = client.set_active_profile(&id).await;
-                        let _ = event_tx.send(GuiEvent::ProfileSaved(saved.clone()));
-                        let _ = event_tx.send(GuiEvent::ActiveProfileLoaded(saved));
+                        let _ = event_tx.send(GuiEvent::ProfileSaved(saved.clone())).await;
+                        let _ = event_tx.send(GuiEvent::ActiveProfileLoaded(saved)).await;
                     }
                     Err(e) => {
-                        let _ = event_tx.send(GuiEvent::Error(format!("Не удалось сохранить профиль: {}", e)));
+                        let _ = event_tx
+                            .send(GuiEvent::Error(format!(
+                                "Не удалось сохранить профиль: {}",
+                                e
+                            )))
+                            .await;
                     }
                 }
             } else {
-                let _ = event_tx.send(GuiEvent::Error("Демон недоступен".to_string()));
+                let _ = event_tx
+                    .send(GuiEvent::Error("Демон недоступен".to_string()))
+                    .await;
             }
         });
     }
