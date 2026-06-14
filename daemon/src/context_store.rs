@@ -52,6 +52,17 @@ impl ContextStore {
     pub async fn add_message(&self, role: String, content: String) {
         let mut inner = self.inner.write().await;
         inner.chat_history.push(ChatMessage { role, content });
+
+        let max_messages = inner
+            .active_profile
+            .as_ref()
+            .map(|p| p.llm.max_context_messages as usize)
+            .unwrap_or(20);
+
+        if inner.chat_history.len() > max_messages {
+            let drain_count = inner.chat_history.len() - max_messages;
+            inner.chat_history.drain(0..drain_count);
+        }
     }
 
     pub async fn get_history(&self) -> Vec<ChatMessage> {
