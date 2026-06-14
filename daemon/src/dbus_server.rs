@@ -256,10 +256,9 @@ impl DaemonInterface {
 
         // Отправляем SIGINT (kill -2), чтобы gst-launch завершил запись с записью wav-заголовков
         let pid = child.id();
-        let _ = std::process::Command::new("kill")
-            .arg("-2")
-            .arg(pid.to_string())
-            .status();
+        unsafe {
+            libc::kill(pid as libc::pid_t, libc::SIGINT);
+        }
 
         // Ожидаем завершения процесса
         let _ = child.wait();

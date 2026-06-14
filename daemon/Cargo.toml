@@ -24,3 +24,5 @@ image.workspace = true
 pipewire.workspace = true
 clap.workspace = true
 base64 = "0.22"
+libc = "0.2"
+
