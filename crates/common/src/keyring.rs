@@ -17,19 +17,17 @@ impl KeyringStore {
                 IziError::Keyring(format!("Не удалось подключиться к Secret Service: {}", e))
             })?;
 
-        let collection = ss
-            .get_default_collection()
-            .await
-            .map_err(|e| IziError::Keyring(format!("Не удалось получить стандартную коллекцию: {}", e)))?;
+        let collection = ss.get_default_collection().await.map_err(|e| {
+            IziError::Keyring(format!("Не удалось получить стандартную коллекцию: {}", e))
+        })?;
 
         let mut attributes = HashMap::new();
         attributes.insert("application", "izighost");
         attributes.insert("key", key);
 
-        let items = collection
-            .search_items(attributes)
-            .await
-            .map_err(|e| IziError::Keyring(format!("Не удалось выполнить поиск элементов: {}", e)))?;
+        let items = collection.search_items(attributes).await.map_err(|e| {
+            IziError::Keyring(format!("Не удалось выполнить поиск элементов: {}", e))
+        })?;
 
         if let Some(item) = items.first() {
             let secret_bytes = item
@@ -57,10 +55,9 @@ impl KeyringStore {
                 IziError::Keyring(format!("Не удалось подключиться к Secret Service: {}", e))
             })?;
 
-        let collection = ss
-            .get_default_collection()
-            .await
-            .map_err(|e| IziError::Keyring(format!("Не удалось получить стандартную коллекцию: {}", e)))?;
+        let collection = ss.get_default_collection().await.map_err(|e| {
+            IziError::Keyring(format!("Не удалось получить стандартную коллекцию: {}", e))
+        })?;
 
         let mut attributes = HashMap::new();
         attributes.insert("application", "izighost");
@@ -69,7 +66,9 @@ impl KeyringStore {
         let items = collection
             .search_items(attributes.clone())
             .await
-            .map_err(|e| IziError::Keyring(format!("Не удалось выполнить поиск элементов: {}", e)))?;
+            .map_err(|e| {
+                IziError::Keyring(format!("Не удалось выполнить поиск элементов: {}", e))
+            })?;
         for item in items {
             item.delete()
                 .await
@@ -86,7 +85,9 @@ impl KeyringStore {
                 "text/plain",
             )
             .await
-            .map_err(|e| IziError::Keyring(format!("Не удалось создать элемент в связке ключей: {}", e)))?;
+            .map_err(|e| {
+                IziError::Keyring(format!("Не удалось создать элемент в связке ключей: {}", e))
+            })?;
 
         Ok(())
     }
@@ -102,19 +103,17 @@ impl KeyringStore {
                 IziError::Keyring(format!("Не удалось подключиться к Secret Service: {}", e))
             })?;
 
-        let collection = ss
-            .get_default_collection()
-            .await
-            .map_err(|e| IziError::Keyring(format!("Не удалось получить стандартную коллекцию: {}", e)))?;
+        let collection = ss.get_default_collection().await.map_err(|e| {
+            IziError::Keyring(format!("Не удалось получить стандартную коллекцию: {}", e))
+        })?;
 
         let mut attributes = HashMap::new();
         attributes.insert("application", "izighost");
         attributes.insert("key", key);
 
-        let items = collection
-            .search_items(attributes)
-            .await
-            .map_err(|e| IziError::Keyring(format!("Не удалось выполнить поиск элементов: {}", e)))?;
+        let items = collection.search_items(attributes).await.map_err(|e| {
+            IziError::Keyring(format!("Не удалось выполнить поиск элементов: {}", e))
+        })?;
         for item in items {
             item.delete()
                 .await
