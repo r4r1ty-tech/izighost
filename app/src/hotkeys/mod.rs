@@ -6,6 +6,7 @@ use std::sync::Arc;
 
 /// Инициализация глобального хоткея Super+Shift+S через XDG Desktop Portal.
 /// При активации хоткея отправляет D-Bus команду TriggerOcr на сторону демона.
+#[allow(dead_code)]
 pub async fn init_hotkeys(dbus_client: Option<Arc<DaemonClient>>) -> Result<(), ashpd::Error> {
     let client = match dbus_client {
         Some(c) => c,

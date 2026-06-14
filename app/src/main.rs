@@ -85,7 +85,7 @@ fn create_extension_zip(
 ) -> Result<(), std::io::Error> {
     let tmp_dir = zip_path
         .parent()
-        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::Other, "no parent"))?
+        .ok_or_else(|| std::io::Error::other("no parent"))?
         .join("ext_files");
     let _ = std::fs::create_dir_all(&tmp_dir);
 
@@ -109,10 +109,7 @@ fn create_extension_zip(
     if status.success() {
         Ok(())
     } else {
-        Err(std::io::Error::new(
-            std::io::ErrorKind::Other,
-            "zip command failed",
-        ))
+        Err(std::io::Error::other("zip command failed"))
     }
 }
 
@@ -205,7 +202,8 @@ fn main() -> Result<(), eframe::Error> {
         }
     };
 
-    // Инициализируем глобальные хоткеи в фоновом режиме
+    // Глобальные хоткеи отключены в пользу интерактивного выделения области экрана
+    /*
     if let Some(ref client) = dbus_client {
         let client_clone = client.clone();
         rt.spawn(async move {
@@ -214,6 +212,7 @@ fn main() -> Result<(), eframe::Error> {
             }
         });
     }
+    */
 
     // Опции для главного оверлей-окна HUD (прозрачное, без рамок)
     let options = eframe::NativeOptions {
