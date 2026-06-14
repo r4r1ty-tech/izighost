@@ -33,12 +33,10 @@ async fn run_whisper_api(
     model: &str,
     api_key: &str,
 ) -> Result<String, anyhow::Error> {
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(60))
-        .build()?;
+    let client = crate::get_http_client();
     let url = format!("{}/audio/transcriptions", base_url.trim_end_matches('/'));
 
-    let file_bytes = std::fs::read(wav_path)?;
+    let file_bytes = tokio::fs::read(wav_path).await?;
     let part = multipart::Part::bytes(file_bytes)
         .file_name("recording.wav")
         .mime_str("audio/wav")?;
@@ -74,11 +72,11 @@ async fn run_local_asr_fallback(wav_path: &Path) -> Result<String, anyhow::Error
     let home = std::env::var("HOME")
         .map_err(|_| anyhow::anyhow!("Переменная HOME не определена"))?;
     let cache_dir = std::path::PathBuf::from(home).join(".cache/izighost");
-    std::fs::create_dir_all(&cache_dir)?;
+    tokio::fs::create_dir_all(&cache_dir).await?;
 
     let script_path = cache_dir.join("asr_fallback.py");
     let script_content = include_str!("audio/asr_fallback.py");
-    std::fs::write(&script_path, script_content)?;
+    tokio::fs::write(&script_path, script_content).await?;
 
     let output = tokio::process::Command::new("python3")
         .arg(&script_path)

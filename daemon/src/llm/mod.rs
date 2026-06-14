@@ -1,6 +1,5 @@
 use anyhow::Result;
 use futures::{Stream, StreamExt};
-use reqwest::Client;
 use serde_json::Value;
 use std::pin::Pin;
 use crate::context_store::ChatMessage;
@@ -13,9 +12,7 @@ pub async fn stream_chat_completion(
     history: &[ChatMessage],
     system_prompt: &str,
 ) -> Result<Pin<Box<dyn Stream<Item = Result<String, anyhow::Error>> + Send>>> {
-    let client = Client::builder()
-        .timeout(std::time::Duration::from_secs(60))
-        .build()?;
+    let client = crate::get_http_client();
     let url = format!("{}/chat/completions", base_url.trim_end_matches('/'));
 
     let mut messages = vec![

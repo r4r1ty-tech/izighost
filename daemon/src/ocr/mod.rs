@@ -123,11 +123,9 @@ async fn ensure_tessdata_downloaded() -> Result<PathBuf, anyhow::Error> {
         .map_err(|_| anyhow::anyhow!("Переменная окружения HOME не задана"))?;
     let tessdata_dir = std::path::PathBuf::from(home).join(".cache/izighost/tessdata");
 
-    std::fs::create_dir_all(&tessdata_dir)?;
+    tokio::fs::create_dir_all(&tessdata_dir).await?;
 
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(120))
-        .build()?;
+    let client = crate::get_http_client();
 
     let files = ["eng.traineddata", "rus.traineddata"];
     for file in &files {
@@ -147,7 +145,7 @@ async fn ensure_tessdata_downloaded() -> Result<PathBuf, anyhow::Error> {
                 ));
             }
             let content = response.bytes().await?;
-            std::fs::write(&file_path, content)?;
+            tokio::fs::write(&file_path, content).await?;
         }
     }
 
@@ -192,10 +190,7 @@ pub async fn run_ocr_on_file(
         if let Some(ref p) = profile {
             // Пробуем распознать через Vision API (Groq/OpenAI) с настройками из vision конфига
             match run_vision_api_ocr(&img_path, &p.vision, &api_key).await {
-                Ok(text) => {
-                    let _ = std::fs::remove_file(&img_path);
-                    text
-                }
+                Ok(text) => text,
                 Err(e) => {
                     // В случае ошибки (например, сбой сети) откатываемся на локальный Tesseract
                     tracing::warn!("Ошибка Vision API OCR, откат на Tesseract: {:?}", e);
@@ -214,8 +209,6 @@ pub async fn run_ocr_on_file(
 }
 
 async fn run_local_tesseract_ocr_pipeline(img_path: PathBuf) -> Result<String, anyhow::Error> {
-    let _img_guard = DeleteOnDrop(Some(img_path.clone()));
-
     // 1. Обеспечиваем наличие языковых файлов rus/eng
     let tessdata_dir = match ensure_tessdata_downloaded().await {
         Ok(dir) => Some(dir),
@@ -230,7 +223,6 @@ async fn run_local_tesseract_ocr_pipeline(img_path: PathBuf) -> Result<String, a
 
     // 2. Предобрабатываем
     let preprocessed_img_path = preprocess_image(&img_path)?;
-    let _ = std::fs::remove_file(&img_path);
 
     // 3. Запускаем OCR
     let _prep_guard = DeleteOnDrop(Some(preprocessed_img_path.clone()));
@@ -248,7 +240,7 @@ async fn run_vision_api_ocr(
     use base64::Engine;
 
     // 1. Считываем картинку и кодируем в Base64
-    let img_bytes = std::fs::read(img_path)?;
+    let img_bytes = tokio::fs::read(img_path).await?;
     let base64_data = base64::engine::general_purpose::STANDARD.encode(img_bytes);
 
     // 2. Выбираем модель (для Groq используем Llama 4 Scout, для OpenAI — gpt-4o-mini)
@@ -266,9 +258,7 @@ async fn run_vision_api_ocr(
     };
 
     // 3. Формируем запрос
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(60))
-        .build()?;
+    let client = crate::get_http_client();
     let url = format!("{}/chat/completions", base_url.trim_end_matches('/'));
 
     let image_url = format!("data:image/png;base64,{}", base64_data);
