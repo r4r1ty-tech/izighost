@@ -449,8 +449,16 @@ impl PreferencesState {
                     );
                     ui.add(
                         egui::TextEdit::singleline(&mut profile.cv_path)
-                            .desired_width(ui.available_width() - 40.0),
+                            .desired_width(ui.available_width() - 110.0),
                     );
+                    if ui.add(egui::Button::new("Обзор...").fill(theme::BG_BUTTON).corner_radius(4.0)).clicked() {
+                        if let Some(path) = rfd::FileDialog::new()
+                            .add_filter("Документы (*.pdf, *.txt, *.md)", &["pdf", "txt", "md"])
+                            .pick_file()
+                        {
+                            profile.cv_path = path.to_string_lossy().to_string();
+                        }
+                    }
                     let ok = std::path::Path::new(&profile.cv_path).exists()
                         && !profile.cv_path.is_empty();
                     if !profile.cv_path.is_empty() {
@@ -463,18 +471,16 @@ impl PreferencesState {
                     }
                 });
 
-                if !profile.cv_text.is_empty() {
-                    ui.collapsing("Спарсенный текст резюме", |ui| {
-                        let preview: String = profile.cv_text.chars().take(200).collect();
-                        ui.label(
-                            RichText::new(format!("{}...", preview))
-                                .size(11.0)
-                                .color(theme::TEXT_MUTED),
-                        );
-                    });
-                }
+                ui.add_space(4.0);
+                ui.label(RichText::new("Текст резюме (CV):").color(theme::TEXT_SECONDARY));
+                ui.add(
+                    egui::TextEdit::multiline(&mut profile.cv_text)
+                        .hint_text("Вставьте текст резюме вручную или выберите файл выше...")
+                        .desired_rows(4)
+                        .desired_width(ui.available_width()),
+                );
 
-                ui.add_space(6.0);
+                ui.add_space(8.0);
 
                 ui.horizontal(|ui| {
                     ui.add_sized(
@@ -483,8 +489,16 @@ impl PreferencesState {
                     );
                     ui.add(
                         egui::TextEdit::singleline(&mut profile.vacancy_path)
-                            .desired_width(ui.available_width() - 40.0),
+                            .desired_width(ui.available_width() - 110.0),
                     );
+                    if ui.add(egui::Button::new("Обзор...").fill(theme::BG_BUTTON).corner_radius(4.0)).clicked() {
+                        if let Some(path) = rfd::FileDialog::new()
+                            .add_filter("Документы (*.pdf, *.txt, *.md)", &["pdf", "txt", "md"])
+                            .pick_file()
+                        {
+                            profile.vacancy_path = path.to_string_lossy().to_string();
+                        }
+                    }
                     let ok = std::path::Path::new(&profile.vacancy_path).exists()
                         && !profile.vacancy_path.is_empty();
                     if !profile.vacancy_path.is_empty() {
@@ -497,16 +511,14 @@ impl PreferencesState {
                     }
                 });
 
-                if !profile.vacancy_text.is_empty() {
-                    ui.collapsing("Спарсенный текст вакансии", |ui| {
-                        let preview: String = profile.vacancy_text.chars().take(200).collect();
-                        ui.label(
-                            RichText::new(format!("{}...", preview))
-                                .size(11.0)
-                                .color(theme::TEXT_MUTED),
-                        );
-                    });
-                }
+                ui.add_space(4.0);
+                ui.label(RichText::new("Текст вакансии:").color(theme::TEXT_SECONDARY));
+                ui.add(
+                    egui::TextEdit::multiline(&mut profile.vacancy_text)
+                        .hint_text("Вставьте текст вакансии вручную или выберите файл выше...")
+                        .desired_rows(4)
+                        .desired_width(ui.available_width()),
+                );
 
                 ui.add_space(6.0);
 
