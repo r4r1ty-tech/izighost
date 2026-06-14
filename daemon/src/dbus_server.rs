@@ -47,25 +47,63 @@ impl DaemonInterface {
         text: String,
         #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
     ) -> zbus::fdo::Result<()> {
+        let profile = self.context_store.get_active_profile().await
+            .ok_or_else(|| zbus::fdo::Error::Failed("Нет активного профиля".to_string()))?;
+
         // Сохраняем сообщение пользователя в историю
         self.context_store
             .add_message("user".to_string(), text.clone())
             .await;
 
-        // Имитируем стриминг ответа от LLM
-        let response_text = format!("Эхо-ответ от демона на ваш вопрос: '{}'", text);
-
-        // Отправляем ответ по словам (чанками)
-        for word in response_text.split_whitespace() {
-            let chunk = format!("{} ", word);
-            Self::chat_chunk(&emitter, &chunk)
+        let api_key = if !profile.id.is_empty() {
+            izighost_common::KeyringStore::get_password(&format!("llm_api_key_{}", profile.id))
                 .await
-                .map_err(|e| zbus::fdo::Error::Failed(e.to_string()))?;
-            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                .ok()
+                .flatten()
+                .unwrap_or_default()
+        } else {
+            "".to_string()
+        };
+
+        let system_prompt = crate::prompt_assembler::assemble_system_prompt(&profile);
+        let history = self.context_store.get_history().await;
+
+        let mut full_response = String::new();
+        match crate::llm::stream_chat_completion(
+            &profile.llm.base_url,
+            &profile.llm.model,
+            &api_key,
+            profile.llm.temperature,
+            &history,
+            &system_prompt,
+        ).await {
+            Ok(mut stream) => {
+                use futures::StreamExt;
+                while let Some(chunk_res) = stream.next().await {
+                    match chunk_res {
+                        Ok(chunk) => {
+                            full_response.push_str(&chunk);
+                            let _ = Self::chat_chunk(&emitter, &chunk).await;
+                        }
+                        Err(e) => {
+                            let err_msg = format!("Ошибка во время стриминга LLM: {}", e);
+                            tracing::error!("{}", err_msg);
+                            let _ = Self::error_occurred(&emitter, &err_msg).await;
+                            return Err(zbus::fdo::Error::Failed(err_msg));
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                let err_msg = format!("Не удалось выполнить LLM запрос: {}", e);
+                tracing::error!("{}", err_msg);
+                let _ = Self::error_occurred(&emitter, &err_msg).await;
+                return Err(zbus::fdo::Error::Failed(err_msg));
+            }
         }
 
         self.context_store
-            .add_message("assistant".to_string(), response_text)
+            .add_message("assistant".to_string(), full_response)
             .await;
 
         Self::chat_completed(&emitter)
