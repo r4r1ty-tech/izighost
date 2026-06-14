@@ -6,7 +6,6 @@ pub struct LlmConfig {
     pub provider: String,
     pub model: String,
     pub base_url: String,
-    pub api_key: String,
     pub temperature: f64,
     pub max_context_messages: u32,
 }
@@ -17,7 +16,6 @@ impl Default for LlmConfig {
             provider: "openai_compat".to_string(),
             model: "gpt-4o-mini".to_string(),
             base_url: "https://api.openai.com/v1".to_string(),
-            api_key: "".to_string(),
             temperature: 0.7,
             max_context_messages: 20,
         }
@@ -29,7 +27,6 @@ pub struct AsrConfig {
     pub provider: String,
     pub model: String,
     pub base_url: String,
-    pub api_key: String,
 }
 
 impl Default for AsrConfig {
@@ -38,7 +35,6 @@ impl Default for AsrConfig {
             provider: "openai_compat".to_string(),
             model: "whisper-1".to_string(),
             base_url: "https://api.openai.com/v1".to_string(),
-            api_key: "".to_string(),
         }
     }
 }
@@ -56,7 +52,6 @@ pub struct VisionConfig {
     pub provider: String,
     pub model: String,
     pub base_url: String,
-    pub api_key: String,
     #[serde(default = "default_use_ocr_prompt")]
     pub use_ocr_prompt: bool,
     #[serde(default = "default_ocr_prompt")]
@@ -69,7 +64,6 @@ impl Default for VisionConfig {
             provider: "openai_compat".to_string(),
             model: "meta-llama/llama-4-scout-17b-16e-instruct".to_string(),
             base_url: "https://api.groq.com/openai/v1".to_string(),
-            api_key: "".to_string(),
             use_ocr_prompt: default_use_ocr_prompt(),
             ocr_prompt: default_ocr_prompt(),
         }

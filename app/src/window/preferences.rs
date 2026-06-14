@@ -771,12 +771,7 @@ impl PreferencesState {
         dbus_client: &Option<Arc<DaemonClient>>,
         event_tx: UnboundedSender<GuiEvent>,
     ) {
-        let mut profile_to_save = profile.clone();
-
-        // Очищаем секретные ключи в объекте профиля перед сохранением в plain-text YAML
-        profile_to_save.llm.api_key = "".to_string();
-        profile_to_save.asr.api_key = "".to_string();
-        profile_to_save.vision.api_key = "".to_string();
+        let profile_to_save = profile.clone();
 
         if let Some(client) = dbus_client {
             let client = client.clone();
