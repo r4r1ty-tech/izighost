@@ -1,7 +1,7 @@
 use eframe::egui;
 use eframe::egui::Color32;
 use std::sync::Arc;
-use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
+use tokio::sync::mpsc::{Sender, Receiver};
 
 mod dbus;
 mod hotkeys;
@@ -279,11 +279,11 @@ fn main() -> Result<(), eframe::Error> {
 
 struct IziGhostApp {
     dbus_client: Option<Arc<dbus::DaemonClient>>,
-    signal_rx: Option<UnboundedReceiver<dbus::DaemonSignal>>,
+    signal_rx: Option<Receiver<dbus::DaemonSignal>>,
 
     // Канал для обработки событий из фоновых задач настроек
-    gui_event_tx: UnboundedSender<GuiEvent>,
-    gui_event_rx: UnboundedReceiver<GuiEvent>,
+    gui_event_tx: Sender<GuiEvent>,
+    gui_event_rx: Receiver<GuiEvent>,
 
     // Состояния интерфейсов
     hud_state: HudState,
@@ -296,28 +296,28 @@ struct IziGhostApp {
 impl IziGhostApp {
     fn new(
         dbus_client: Option<Arc<dbus::DaemonClient>>,
-        signal_rx: Option<UnboundedReceiver<dbus::DaemonSignal>>,
+        signal_rx: Option<Receiver<dbus::DaemonSignal>>,
         ctx: egui::Context,
     ) -> Self {
-        let (gui_event_tx, mut gui_event_rx_raw) = unbounded_channel();
-        let (gui_event_forward_tx, gui_event_rx) = unbounded_channel();
+        let (gui_event_tx, mut gui_event_rx_raw) = tokio::sync::mpsc::channel(100);
+        let (gui_event_forward_tx, gui_event_rx) = tokio::sync::mpsc::channel(100);
 
         // Форвардер событий с вызовом request_repaint()
         let ctx_clone = ctx.clone();
         tokio::spawn(async move {
             while let Some(event) = gui_event_rx_raw.recv().await {
-                let _ = gui_event_forward_tx.send(event);
+                let _ = gui_event_forward_tx.send(event).await;
                 ctx_clone.request_repaint();
             }
         });
 
         // Форвардер D-Bus сигналов с вызовом request_repaint()
         let signal_rx = if let Some(mut rx) = signal_rx {
-            let (sig_tx, sig_rx) = unbounded_channel();
+            let (sig_tx, sig_rx) = tokio::sync::mpsc::channel(100);
             let ctx_clone = ctx.clone();
             tokio::spawn(async move {
                 while let Some(sig) = rx.recv().await {
-                    let _ = sig_tx.send(sig);
+                    let _ = sig_tx.send(sig).await;
                     ctx_clone.request_repaint();
                 }
             });
@@ -340,7 +340,7 @@ impl IziGhostApp {
                     Ok(true) => {} // Успех — молча
                     _ => {
                         // Расширение не загружено — показываем предупреждение
-                        let _ = event_tx_clone.send(GuiEvent::ExtensionNotLoaded);
+                        let _ = event_tx_clone.send(GuiEvent::ExtensionNotLoaded).await;
                     }
                 }
             });
@@ -387,6 +387,24 @@ impl IziGhostApp {
                     self.show_onboarding = false;
                     self.preferences_state
                         .handle_event(event.clone(), &self.dbus_client);
+
+                    if let Some(ref client) = self.dbus_client {
+                        let client = client.clone();
+                        let tx = self.gui_event_tx.clone();
+                        tokio::spawn(async move {
+                            match client.get_chat_history().await {
+                                Ok(history) => {
+                                    let _ = tx.send(GuiEvent::ChatHistoryLoaded(history)).await;
+                                }
+                                Err(e) => {
+                                    let _ = tx.send(GuiEvent::Error(format!("Ошибка загрузки истории чата: {}", e))).await;
+                                }
+                            }
+                        });
+                    }
+                }
+                GuiEvent::ChatHistoryLoaded(history) => {
+                    self.hud_state.chat_messages = history;
                 }
                 other => {
                     self.preferences_state

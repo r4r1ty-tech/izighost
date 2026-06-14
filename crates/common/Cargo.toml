@@ -6,7 +6,7 @@ edition.workspace = true
 [dependencies]
 serde.workspace = true
 serde_json.workspace = true
-secret-service.workspace = true
+secret-service = { version = "5", features = ["rt-tokio-crypto-rust"] }
 thiserror.workspace = true
 zbus.workspace = true
 zvariant = { workspace = true }

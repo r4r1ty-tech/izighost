@@ -13,6 +13,9 @@ pub struct HudState {
     pub show_preferences: bool,
     pub is_pinned: bool,
     pub show_extension_warning: bool,
+    pub active_ocr_task: Option<tokio::task::JoinHandle<()>>,
+    pub active_asr_task: Option<tokio::task::JoinHandle<()>>,
+    pub active_chat_task: Option<tokio::task::JoinHandle<()>>,
 }
 
 impl HudState {
@@ -26,6 +29,9 @@ impl HudState {
             show_preferences: false,
             is_pinned: true,
             show_extension_warning: false,
+            active_ocr_task: None,
+            active_asr_task: None,
+            active_chat_task: None,
         }
     }
 
@@ -71,7 +77,10 @@ impl HudState {
                     if let Some(client) = dbus_client {
                         let client = client.clone();
                         self.is_generating = true;
-                        tokio::spawn(async move {
+                        if let Some(task) = self.active_ocr_task.take() {
+                            task.abort();
+                        }
+                        self.active_ocr_task = Some(tokio::spawn(async move {
                             match save_clipboard_image(image_data) {
                                 Ok(temp_path) => {
                                     let path_str = temp_path.to_string_lossy().to_string();
@@ -84,7 +93,7 @@ impl HudState {
                                     eprintln!("Ошибка сохранения изображения из буфера: {:?}", e);
                                 }
                             }
-                        });
+                        }));
                     }
                 }
             }
@@ -99,7 +108,10 @@ impl HudState {
                         let client = client.clone();
                         let original_path = path.clone();
                         self.is_generating = true;
-                        tokio::spawn(async move {
+                        if let Some(task) = self.active_ocr_task.take() {
+                            task.abort();
+                        }
+                        self.active_ocr_task = Some(tokio::spawn(async move {
                             match copy_to_temp(original_path) {
                                 Ok(temp_path) => {
                                     let path_str = temp_path.to_string_lossy().to_string();
@@ -115,7 +127,7 @@ impl HudState {
                                     );
                                 }
                             }
-                        });
+                        }));
                     }
                 }
             }
@@ -361,7 +373,10 @@ impl HudState {
                 if let Some(client) = dbus_client {
                     let client = client.clone();
                     self.is_generating = true;
-                    tokio::spawn(async move {
+                    if let Some(task) = self.active_ocr_task.take() {
+                        task.abort();
+                    }
+                    self.active_ocr_task = Some(tokio::spawn(async move {
                         use ashpd::desktop::screenshot::Screenshot;
                         match Screenshot::request()
                             .interactive(true)
@@ -397,7 +412,7 @@ impl HudState {
                                 eprintln!("Ошибка запроса Screenshot: {:?}", e);
                             }
                         }
-                    });
+                    }));
                 }
             }
 
@@ -425,13 +440,16 @@ impl HudState {
                     let client = client.clone();
                     let was_listening = self.is_listening;
                     self.is_listening = !was_listening;
-                    tokio::spawn(async move {
+                    if let Some(task) = self.active_asr_task.take() {
+                        task.abort();
+                    }
+                    self.active_asr_task = Some(tokio::spawn(async move {
                         if was_listening {
                             let _ = client.stop_listening().await;
                         } else {
                             let _ = client.start_listening().await;
                         }
-                    });
+                    }));
                 }
             }
 
@@ -468,6 +486,15 @@ impl HudState {
             if is_stop {
                 if btn_clicked {
                     self.is_generating = false;
+                    if let Some(task) = self.active_chat_task.take() {
+                        task.abort();
+                    }
+                    if let Some(task) = self.active_ocr_task.take() {
+                        task.abort();
+                    }
+                    if let Some(task) = self.active_asr_task.take() {
+                        task.abort();
+                    }
                     if let Some(client) = dbus_client {
                         let client = client.clone();
                         tokio::spawn(async move {
@@ -483,9 +510,12 @@ impl HudState {
 
                 if let Some(client) = dbus_client {
                     let client = client.clone();
-                    tokio::spawn(async move {
+                    if let Some(task) = self.active_chat_task.take() {
+                        task.abort();
+                    }
+                    self.active_chat_task = Some(tokio::spawn(async move {
                         let _ = client.send_chat_message(&text).await;
-                    });
+                    }));
                 }
             }
         });

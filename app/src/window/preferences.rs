@@ -4,7 +4,7 @@ use eframe::egui;
 use eframe::egui::{RichText, Vec2};
 use izighost_common::{KeyringStore, Profile};
 use std::sync::Arc;
-use tokio::sync::mpsc::UnboundedSender;
+use tokio::sync::mpsc::Sender;
 
 /// События, отправляемые из фоновых асинхронных задач в главный поток GUI
 #[derive(Debug, Clone)]
@@ -18,6 +18,7 @@ pub enum GuiEvent {
     RvmsStopped,
     Error(String),
     ExtensionNotLoaded,
+    ChatHistoryLoaded(Vec<(String, String)>),
 }
 
 pub struct PreferencesState {
@@ -40,11 +41,11 @@ pub struct PreferencesState {
     pub pipewire_node_id: Option<u32>,
 
     // Канал для отправки событий из фоновых задач
-    pub event_tx: UnboundedSender<GuiEvent>,
+    pub event_tx: Sender<GuiEvent>,
 }
 
 impl PreferencesState {
-    pub fn new(event_tx: UnboundedSender<GuiEvent>) -> Self {
+    pub fn new(event_tx: Sender<GuiEvent>) -> Self {
         Self {
             profiles: Vec::new(),
             selected_id: None,
@@ -162,6 +163,7 @@ impl PreferencesState {
                 self.status_message = Some((msg, true));
             }
             GuiEvent::ExtensionNotLoaded => {}
+            GuiEvent::ChatHistoryLoaded(_) => {}
         }
     }
 
@@ -774,7 +776,7 @@ impl PreferencesState {
         asr_key: String,
         vision_key: String,
         dbus_client: &Option<Arc<DaemonClient>>,
-        event_tx: UnboundedSender<GuiEvent>,
+        event_tx: Sender<GuiEvent>,
     ) {
         let profile_to_save = profile.clone();
 

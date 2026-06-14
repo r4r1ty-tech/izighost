@@ -1,5 +1,5 @@
 use izighost_common::Profile;
-use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
+use tokio::sync::mpsc::{Sender, Receiver};
 use zbus::{proxy, Connection};
 
 #[derive(Clone, Debug)]
@@ -31,6 +31,7 @@ pub trait Daemon {
     async fn set_active_profile(&self, id: &str) -> zbus::Result<()>;
     async fn get_active_profile(&self) -> zbus::Result<Profile>;
     async fn cancel_generation(&self) -> zbus::Result<()>;
+    async fn get_chat_history(&self) -> zbus::Result<Vec<(String, String)>>;
 
     #[zbus(signal)]
     async fn chat_chunk(&self, delta_text: String) -> zbus::Result<()>;
@@ -64,18 +65,16 @@ pub struct DaemonClient {
 }
 
 impl DaemonClient {
-    pub async fn connect() -> zbus::Result<(Self, UnboundedReceiver<DaemonSignal>)> {
+    pub async fn connect() -> zbus::Result<(Self, Receiver<DaemonSignal>)> {
         let conn = Connection::session().await?;
         let proxy = DaemonProxy::new(&conn).await?;
         let pin_proxy = WindowPinBridgeProxy::new(&conn).await?;
-        let (tx, rx) = unbounded_channel();
+        let (tx, rx) = tokio::sync::mpsc::channel(100);
 
-        // Запуск фоновой задачи для прослушивания сигналов
-        let proxy_clone = proxy.clone();
+        // Запуск фоновой задачи для прослушивания сигналов с автоматическим переподключением
+        let conn_clone = conn.clone();
         tokio::spawn(async move {
-            if let Err(e) = listen_to_signals(proxy_clone, tx).await {
-                eprintln!("Ошибка при прослушивании сигналов D-Bus: {:?}", e);
-            }
+            listen_to_signals(conn_clone, tx).await;
         });
 
         Ok((Self { proxy, pin_proxy }, rx))
@@ -138,6 +137,10 @@ impl DaemonClient {
         self.proxy.cancel_generation().await
     }
 
+    pub async fn get_chat_history(&self) -> zbus::Result<Vec<(String, String)>> {
+        self.proxy.get_chat_history().await
+    }
+
     pub async fn pin_window_by_pid(&self, pid: u32) -> zbus::Result<bool> {
         self.pin_proxy.pin_window_by_pid(pid).await
     }
@@ -148,62 +151,90 @@ impl DaemonClient {
 }
 
 async fn listen_to_signals(
-    proxy: DaemonProxy<'static>,
-    tx: UnboundedSender<DaemonSignal>,
-) -> zbus::Result<()> {
+    conn: Connection,
+    tx: Sender<DaemonSignal>,
+) {
     use futures::StreamExt;
-
-    let mut chat_chunks = proxy.receive_chat_chunk().await?;
-    let mut chat_completeds = proxy.receive_chat_completed().await?;
-    let mut ocr_completeds = proxy.receive_ocr_completed().await?;
-    let mut asr_completeds = proxy.receive_asr_completed().await?;
-    let mut error_occurreds = proxy.receive_error_occurred().await?;
+    let mut delay = std::time::Duration::from_secs(1);
 
     loop {
-        tokio::select! {
-            Some(msg) = chat_chunks.next() => {
-                match msg.args() {
-                    Ok(args) => {
-                        let _ = tx.send(DaemonSignal::ChatChunk(args.delta_text));
+        match DaemonProxy::new(&conn).await {
+            Ok(proxy) => {
+                let chat_chunks_res = proxy.receive_chat_chunk().await;
+                let chat_completeds_res = proxy.receive_chat_completed().await;
+                let ocr_completeds_res = proxy.receive_ocr_completed().await;
+                let asr_completeds_res = proxy.receive_asr_completed().await;
+                let error_occurreds_res = proxy.receive_error_occurred().await;
+
+                if let (Ok(mut chat_chunks), Ok(mut chat_completeds), Ok(mut ocr_completeds), Ok(mut asr_completeds), Ok(mut error_occurreds)) =
+                    (chat_chunks_res, chat_completeds_res, ocr_completeds_res, asr_completeds_res, error_occurreds_res)
+                {
+                    tracing::info!("Успешно подключились к сигналам D-Bus демона.");
+                    delay = std::time::Duration::from_secs(1); // сброс задержки
+
+                    loop {
+                        tokio::select! {
+                            msg = chat_chunks.next() => {
+                                match msg {
+                                    Some(msg) => {
+                                        if let Ok(args) = msg.args() {
+                                            if tx.send(DaemonSignal::ChatChunk(args.delta_text)).await.is_err() { return; }
+                                        }
+                                    }
+                                    None => break,
+                                }
+                            }
+                            msg = chat_completeds.next() => {
+                                match msg {
+                                    Some(_) => {
+                                        if tx.send(DaemonSignal::ChatCompleted).await.is_err() { return; }
+                                    }
+                                    None => break,
+                                }
+                            }
+                            msg = ocr_completeds.next() => {
+                                match msg {
+                                    Some(msg) => {
+                                        if let Ok(args) = msg.args() {
+                                            if tx.send(DaemonSignal::OcrCompleted(args.text)).await.is_err() { return; }
+                                        }
+                                    }
+                                    None => break,
+                                }
+                            }
+                            msg = asr_completeds.next() => {
+                                match msg {
+                                    Some(msg) => {
+                                        if let Ok(args) = msg.args() {
+                                            if tx.send(DaemonSignal::AsrCompleted(args.text)).await.is_err() { return; }
+                                        }
+                                    }
+                                    None => break,
+                                }
+                            }
+                            msg = error_occurreds.next() => {
+                                match msg {
+                                    Some(msg) => {
+                                        if let Ok(args) = msg.args() {
+                                            if tx.send(DaemonSignal::ErrorOccurred(args.message)).await.is_err() { return; }
+                                        }
+                                    }
+                                    None => break,
+                                }
+                            }
+                        }
                     }
-                    Err(e) => {
-                        tracing::warn!("Ошибка разбора аргументов сигнала chat_chunk: {:?}", e);
-                    }
+                    tracing::warn!("Соединение с сигналами D-Bus потеряно. Попытка переподключения...");
+                } else {
+                    tracing::warn!("Не удалось подписаться на один или несколько сигналов D-Bus.");
                 }
             }
-            Some(_) = chat_completeds.next() => {
-                let _ = tx.send(DaemonSignal::ChatCompleted);
-            }
-            Some(msg) = ocr_completeds.next() => {
-                match msg.args() {
-                    Ok(args) => {
-                        let _ = tx.send(DaemonSignal::OcrCompleted(args.text));
-                    }
-                    Err(e) => {
-                        tracing::warn!("Ошибка разбора аргументов сигнала ocr_completed: {:?}", e);
-                    }
-                }
-            }
-            Some(msg) = asr_completeds.next() => {
-                match msg.args() {
-                    Ok(args) => {
-                        let _ = tx.send(DaemonSignal::AsrCompleted(args.text));
-                    }
-                    Err(e) => {
-                        tracing::warn!("Ошибка разбора аргументов сигнала asr_completed: {:?}", e);
-                    }
-                }
-            }
-            Some(msg) = error_occurreds.next() => {
-                match msg.args() {
-                    Ok(args) => {
-                        let _ = tx.send(DaemonSignal::ErrorOccurred(args.message));
-                    }
-                    Err(e) => {
-                        tracing::warn!("Ошибка разбора аргументов сигнала error_occurred: {:?}", e);
-                    }
-                }
+            Err(e) => {
+                tracing::warn!("Не удалось получить D-Bus прокси для сигналов: {:?}. Повтор через {:?}", e, delay);
             }
         }
+
+        tokio::time::sleep(delay).await;
+        delay = std::cmp::min(delay * 2, std::time::Duration::from_secs(30));
     }
 }

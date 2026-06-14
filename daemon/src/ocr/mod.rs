@@ -118,10 +118,8 @@ pub fn run_ocr(image_path: &Path, tessdata_dir: Option<PathBuf>) -> Result<Strin
 }
 
 /// Автоматическое скачивание файлов Tesseract traineddata, если они отсутствуют.
-async fn ensure_tessdata_downloaded() -> Result<PathBuf, anyhow::Error> {
-    let home = std::env::var("HOME")
-        .map_err(|_| anyhow::anyhow!("Переменная окружения HOME не задана"))?;
-    let tessdata_dir = std::path::PathBuf::from(home).join(".cache/izighost/tessdata");
+async fn ensure_tessdata_downloaded(cache_dir: &str) -> Result<PathBuf, anyhow::Error> {
+    let tessdata_dir = crate::config::resolve_path(cache_dir).join("tessdata");
 
     tokio::fs::create_dir_all(&tessdata_dir).await?;
 
@@ -156,18 +154,20 @@ async fn ensure_tessdata_downloaded() -> Result<PathBuf, anyhow::Error> {
 pub async fn trigger_ocr_pipeline(
     node_id: u32,
     profile: Option<izighost_common::Profile>,
+    cache_dir: &str,
 ) -> Result<String, anyhow::Error> {
     // 1. Захватываем кадр
     let raw_img_path = capture_screenshot(node_id)?;
 
     // 2. Распознаем
-    run_ocr_on_file(raw_img_path, profile).await
+    run_ocr_on_file(raw_img_path, profile, cache_dir).await
 }
 
 /// Запуск OCR на готовом файле изображения (через Vision API или локально, с последующим удалением файлов).
 pub async fn run_ocr_on_file(
     img_path: PathBuf,
     profile: Option<izighost_common::Profile>,
+    cache_dir: &str,
 ) -> Result<String, anyhow::Error> {
     let _img_guard = DeleteOnDrop(Some(img_path.clone()));
 
@@ -194,23 +194,23 @@ pub async fn run_ocr_on_file(
                 Err(e) => {
                     // В случае ошибки (например, сбой сети) откатываемся на локальный Tesseract
                     tracing::warn!("Ошибка Vision API OCR, откат на Tesseract: {:?}", e);
-                    run_local_tesseract_ocr_pipeline(img_path).await?
+                    run_local_tesseract_ocr_pipeline(img_path, cache_dir).await?
                 }
             }
         } else {
-            run_local_tesseract_ocr_pipeline(img_path).await?
+            run_local_tesseract_ocr_pipeline(img_path, cache_dir).await?
         }
     } else {
         // Если ключ не задан, используем локальный Tesseract
-        run_local_tesseract_ocr_pipeline(img_path).await?
+        run_local_tesseract_ocr_pipeline(img_path, cache_dir).await?
     };
 
     Ok(ocr_result)
 }
 
-async fn run_local_tesseract_ocr_pipeline(img_path: PathBuf) -> Result<String, anyhow::Error> {
+async fn run_local_tesseract_ocr_pipeline(img_path: PathBuf, cache_dir: &str) -> Result<String, anyhow::Error> {
     // 1. Обеспечиваем наличие языковых файлов rus/eng
-    let tessdata_dir = match ensure_tessdata_downloaded().await {
+    let tessdata_dir = match ensure_tessdata_downloaded(cache_dir).await {
         Ok(dir) => Some(dir),
         Err(e) => {
             tracing::warn!(

@@ -79,16 +79,17 @@ pub struct RvmsState {
 #[derive(Clone)]
 pub struct RvmsManager {
     state: Arc<Mutex<RvmsState>>,
+    cache_dir: String,
 }
 
 impl Default for RvmsManager {
     fn default() -> Self {
-        Self::new()
+        Self::new("~/.cache/izighost")
     }
 }
 
 impl RvmsManager {
-    pub fn new() -> Self {
+    pub fn new(cache_dir: &str) -> Self {
         Self {
             state: Arc::new(Mutex::new(RvmsState {
                 connection: None,
@@ -98,6 +99,7 @@ impl RvmsManager {
                 gstreamer_process: None,
                 pipewire_node_id: None,
             })),
+            cache_dir: cache_dir.to_string(),
         }
     }
 
@@ -202,9 +204,7 @@ impl RvmsManager {
             }
         };
 
-        let home = std::env::var("HOME")
-            .map_err(|_| "Переменная HOME не определена".to_string())?;
-        let cache_dir = std::path::PathBuf::from(home).join(".cache/izighost");
+        let cache_dir = crate::config::resolve_path(&self.cache_dir);
         std::fs::create_dir_all(&cache_dir)
             .map_err(|e| format!("Не удалось создать кэш-директорию: {}", e))?;
 
@@ -293,7 +293,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_rvms_manager_get_node_id_initially_none() {
-        let manager = RvmsManager::new();
+        let manager = RvmsManager::new("/tmp");
         assert_eq!(manager.get_pipewire_node_id().await, None);
     }
 }

@@ -185,7 +185,7 @@ impl DaemonInterface {
         };
 
         let profile = self.context_store.get_active_profile().await;
-        match crate::ocr::trigger_ocr_pipeline(node_id, profile).await {
+        match crate::ocr::trigger_ocr_pipeline(node_id, profile, &self._config.general.cache_dir).await {
             Ok(text) => {
                 self.context_store.set_last_preview(Some(text.clone())).await;
                 if let Err(e) = Self::ocr_completed(&emitter, &text).await {
@@ -219,7 +219,7 @@ impl DaemonInterface {
         }
 
         let profile = self.context_store.get_active_profile().await;
-        match crate::ocr::run_ocr_on_file(path, profile).await {
+        match crate::ocr::run_ocr_on_file(path, profile, &self._config.general.cache_dir).await {
             Ok(text) => {
                 self.context_store.set_last_preview(Some(text.clone())).await;
                 if let Err(e) = Self::ocr_completed(&emitter, &text).await {
@@ -388,6 +388,15 @@ impl DaemonInterface {
         });
 
         Ok(())
+    }
+
+    async fn get_chat_history(&self) -> zbus::fdo::Result<Vec<(String, String)>> {
+        let history = self.context_store.get_history().await;
+        let result = history
+            .iter()
+            .map(|msg| (msg.role.clone(), msg.content.clone()))
+            .collect();
+        Ok(result)
     }
 
     // --- Profile Management ---

@@ -1,13 +1,29 @@
+use clap::Parser;
+use std::path::PathBuf;
 use izighost_daemon::config::DaemonConfig;
 use izighost_daemon::context_store::ContextStore;
 use izighost_daemon::dbus_server::DaemonInterface;
 use izighost_daemon::profile::ProfileManager;
 use izighost_daemon::rvms::RvmsManager;
 
+#[derive(Parser, Debug)]
+#[command(author, version, about = "IziGhost Daemon - Desktop Assistant", long_about = None)]
+struct Args {
+    /// Путь к конфигурационному файлу YAML
+    #[arg(short, long)]
+    config: Option<PathBuf>,
+
+    /// Включить подробный вывод логов (уровень debug)
+    #[arg(short, long)]
+    verbose: bool,
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let args = Args::parse();
+
     // Загружаем конфигурацию
-    let config = match DaemonConfig::load() {
+    let config = match DaemonConfig::load(args.config) {
         Ok(cfg) => cfg,
         Err(e) => {
             eprintln!("Предупреждение: Не удалось загрузить конфигурацию daemon.yaml. Ошибка: {}", e);
@@ -15,9 +31,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
-    // Инициализируем логирование с фильтром по умолчанию из конфигурации
+    // Инициализируем логирование с фильтром по умолчанию из конфигурации или флага verbose
+    let log_level = if args.verbose {
+        "debug"
+    } else {
+        &config.general.log_level
+    };
+
     let filter = tracing_subscriber::EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(&config.general.log_level));
+        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(log_level));
     tracing_subscriber::fmt()
         .with_env_filter(filter)
         .init();
@@ -26,8 +48,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Инициализируем менеджеры
     let profile_manager = ProfileManager::new(&config);
-    let context_store = ContextStore::new();
-    let rvms_manager = RvmsManager::new();
+    let context_store = ContextStore::new(&config.general.data_dir);
+    let rvms_manager = RvmsManager::new(&config.general.cache_dir);
 
     // Создаем D-Bus интерфейс
     let interface = DaemonInterface::new(profile_manager, context_store, rvms_manager, config);

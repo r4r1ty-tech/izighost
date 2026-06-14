@@ -3,6 +3,10 @@ import sys
 import subprocess
 
 def setup_venv_and_reexec():
+    if os.environ.get("_IZIGHOST_VENV_REEXEC") == "1":
+        print("Ошибка: Зависимость faster-whisper не найдена даже внутри виртуального окружения. Предотвращение бесконечной рекурсии.", file=sys.stderr)
+        sys.exit(1)
+
     venv_dir = os.path.expanduser("~/.cache/izighost/venv")
     venv_python = os.path.join(venv_dir, "bin", "python3")
     
@@ -22,6 +26,8 @@ def setup_venv_and_reexec():
             print("Установка отсутствующей библиотеки faster-whisper...", file=sys.stderr)
             subprocess.run([os.path.join(venv_dir, "bin", "pip"), "install", "faster-whisper"], check=True)
 
+    # Устанавливаем переменную окружения для предотвращения рекурсии
+    os.environ["_IZIGHOST_VENV_REEXEC"] = "1"
     # Перезапускаем скрипт внутри venv
     os.execv(venv_python, [venv_python] + sys.argv)
 

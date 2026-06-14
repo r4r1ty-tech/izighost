@@ -10,6 +10,7 @@ use std::path::PathBuf;
 pub struct GeneralConfig {
     pub log_level: String,
     pub data_dir: String,
+    pub cache_dir: String,
     pub socket_activation: bool,
 }
 
@@ -18,6 +19,7 @@ impl Default for GeneralConfig {
         Self {
             log_level: "info".to_string(),
             data_dir: "~/.local/share/izighost".to_string(),
+            cache_dir: "~/.cache/izighost".to_string(),
             socket_activation: false,
         }
     }
@@ -162,13 +164,16 @@ pub fn resolve_path(path: &str) -> PathBuf {
 }
 
 impl DaemonConfig {
-    pub fn load() -> Result<Self> {
-        let config_dir = resolve_path("~/.config/izighost");
-        let config_file = config_dir.join("daemon.yaml");
+    pub fn load(config_path: Option<PathBuf>) -> Result<Self> {
+        let config_file = match config_path {
+            Some(p) => p,
+            None => resolve_path("~/.config/izighost/daemon.yaml"),
+        };
 
         if !config_file.exists() {
-            // Create config dir and write default config
-            fs::create_dir_all(&config_dir).context("Failed to create config directory")?;
+            if let Some(parent) = config_file.parent() {
+                fs::create_dir_all(parent).context("Failed to create config directory")?;
+            }
             let default_config = DaemonConfig::default();
             let yaml = serde_yaml::to_string(&default_config)
                 .context("Failed to serialize default config")?;

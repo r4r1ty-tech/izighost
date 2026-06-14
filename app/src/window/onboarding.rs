@@ -5,7 +5,7 @@ use crate::window::theme;
 use crate::dbus::DaemonClient;
 use crate::window::preferences::GuiEvent;
 use std::sync::Arc;
-use tokio::sync::mpsc::UnboundedSender;
+use tokio::sync::mpsc::Sender;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum OnboardingStep {
@@ -37,6 +37,8 @@ pub struct OnboardingState {
     pub has_gstreamer: Option<bool>,
     pub has_tesseract: Option<bool>,
     pub has_python: Option<bool>,
+    pub has_zip: Option<bool>,
+    pub has_gnome_extensions: Option<bool>,
 
     pub is_saving: bool,
 }
@@ -56,6 +58,8 @@ impl OnboardingState {
             has_gstreamer: None,
             has_tesseract: None,
             has_python: None,
+            has_zip: None,
+            has_gnome_extensions: None,
             is_saving: false,
         }
     }
@@ -74,13 +78,15 @@ impl OnboardingState {
         self.has_gstreamer = Some(check_cmd("gst-launch-1.0"));
         self.has_tesseract = Some(check_cmd("tesseract"));
         self.has_python = Some(check_cmd("python3"));
+        self.has_zip = Some(check_cmd("zip"));
+        self.has_gnome_extensions = Some(check_cmd("gnome-extensions"));
     }
 
     pub fn draw(
         &mut self,
         ui: &mut egui::Ui,
         dbus_client: &Option<Arc<DaemonClient>>,
-        event_tx: UnboundedSender<GuiEvent>,
+        event_tx: Sender<GuiEvent>,
     ) {
         ui.vertical_centered(|ui| {
             ui.add_space(10.0);
@@ -282,6 +288,8 @@ impl OnboardingState {
             draw_dep(ui, "GStreamer", "запись аудио и трансляция RVMS", self.has_gstreamer);
             draw_dep(ui, "Tesseract", "локальное распознавание скриншотов", self.has_tesseract);
             draw_dep(ui, "Python 3", "локальный откат голосового ввода", self.has_python);
+            draw_dep(ui, "Zip", "упаковка расширения GNOME", self.has_zip);
+            draw_dep(ui, "GNOME Ext", "управление расширениями GNOME", self.has_gnome_extensions);
 
             ui.add_space(10.0);
             if ui.add(egui::Button::new("Перепроверить").fill(theme::BG_BUTTON).corner_radius(4.0)).clicked() {
@@ -371,7 +379,7 @@ impl OnboardingState {
     fn save_and_finish(
         &mut self,
         dbus_client: &Option<Arc<DaemonClient>>,
-        event_tx: UnboundedSender<GuiEvent>,
+        event_tx: Sender<GuiEvent>,
     ) {
         self.is_saving = true;
 
