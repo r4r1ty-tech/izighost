@@ -1,42 +1,13 @@
 import os
 import sys
-import subprocess
-
-def setup_venv_and_reexec():
-    if os.environ.get("_IZIGHOST_VENV_REEXEC") == "1":
-        print("Ошибка: Зависимость faster-whisper не найдена даже внутри виртуального окружения. Предотвращение бесконечной рекурсии.", file=sys.stderr)
-        sys.exit(1)
-
-    venv_dir = os.path.expanduser("~/.cache/izighost/venv")
-    venv_python = os.path.join(venv_dir, "bin", "python3")
-    
-    if not os.path.exists(venv_python):
-        print("Создание виртуального окружения Python...", file=sys.stderr)
-        os.makedirs(os.path.dirname(venv_dir), exist_ok=True)
-        subprocess.run([sys.executable, "-m", "venv", venv_dir], check=True)
-        
-        print("Установка faster-whisper в виртуальное окружение...", file=sys.stderr)
-        subprocess.run([os.path.join(venv_dir, "bin", "pip"), "install", "--upgrade", "pip"], check=True)
-        subprocess.run([os.path.join(venv_dir, "bin", "pip"), "install", "faster-whisper"], check=True)
-    else:
-        # Проверяем корректность установки
-        try:
-            subprocess.run([venv_python, "-c", "import faster_whisper"], check=True, capture_output=True)
-        except subprocess.CalledProcessError:
-            print("Установка отсутствующей библиотеки faster-whisper...", file=sys.stderr)
-            subprocess.run([os.path.join(venv_dir, "bin", "pip"), "install", "faster-whisper"], check=True)
-
-    # Устанавливаем переменную окружения для предотвращения рекурсии
-    os.environ["_IZIGHOST_VENV_REEXEC"] = "1"
-    # Перезапускаем скрипт внутри venv
-    os.execv(venv_python, [venv_python] + sys.argv)
 
 # Пытаемся импортировать faster-whisper
 try:
     from faster_whisper import WhisperModel
 except ImportError:
-    setup_venv_and_reexec()
-    from faster_whisper import WhisperModel
+    print("Ошибка: Зависимость 'faster-whisper' не найдена в системе.", file=sys.stderr)
+    print("Пожалуйста, установите её перед запуском (например, через 'pip install faster-whisper' или с помощью системного пакетного менеджера).", file=sys.stderr)
+    sys.exit(2)
 
 def main():
     if len(sys.argv) < 2:
