@@ -8,7 +8,7 @@ pub struct DaemonInterface {
     profile_manager: ProfileManager,
     context_store: ContextStore,
     rvms_manager: RvmsManager,
-    recording_state: std::sync::Mutex<Option<(std::process::Child, std::path::PathBuf)>>,
+    recording_state: tokio::sync::Mutex<Option<(std::process::Child, std::path::PathBuf)>>,
 }
 
 impl DaemonInterface {
@@ -21,7 +21,7 @@ impl DaemonInterface {
             profile_manager,
             context_store,
             rvms_manager,
-            recording_state: std::sync::Mutex::new(None),
+            recording_state: tokio::sync::Mutex::new(None),
         }
     }
 }
@@ -159,7 +159,7 @@ impl DaemonInterface {
 
         // Перед запуском новой записи останавливаем предыдущую, если она зависла
         {
-            let mut state = self.recording_state.lock().unwrap();
+            let mut state = self.recording_state.lock().await;
             if let Some((mut child, path)) = state.take() {
                 tracing::warn!("Остановка зависшей записи: {:?}", path);
                 let _ = child.kill();
@@ -188,7 +188,7 @@ impl DaemonInterface {
             .map_err(|e| zbus::fdo::Error::Failed(format!("Не удалось запустить gst-launch-1.0: {}", e)))?;
 
         {
-            let mut state = self.recording_state.lock().unwrap();
+            let mut state = self.recording_state.lock().await;
             *state = Some((child, temp_path));
         }
 
@@ -200,7 +200,7 @@ impl DaemonInterface {
         #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
     ) -> zbus::fdo::Result<()> {
         let recording = {
-            let mut state = self.recording_state.lock().unwrap();
+            let mut state = self.recording_state.lock().await;
             state.take()
         };
 
