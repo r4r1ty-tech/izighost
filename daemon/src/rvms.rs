@@ -208,8 +208,19 @@ impl RvmsManager {
         };
 
         // 9. Запуск интерактивного loopback-зеркала с поддержкой EIS ввода
+        let home = std::env::var("HOME")
+            .map_err(|_| "Переменная HOME не определена".to_string())?;
+        let cache_dir = std::path::PathBuf::from(home).join(".cache/izighost");
+        std::fs::create_dir_all(&cache_dir)
+            .map_err(|e| format!("Не удалось создать кэш-директорию: {}", e))?;
+
+        let script_path = cache_dir.join("rvms_loopback.py");
+        let script_content = include_str!("rvms_loopback.py");
+        std::fs::write(&script_path, script_content)
+            .map_err(|e| format!("Не удалось записать rvms_loopback.py: {}", e))?;
+
         let gst_child = Command::new("python3")
-            .arg("daemon/src/rvms_loopback.py")
+            .arg(&script_path)
             .arg(format!("{}", node_id))
             .arg(rd_session_path.as_str())
             .arg(stream_path.as_str())
