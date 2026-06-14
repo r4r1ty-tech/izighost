@@ -157,26 +157,46 @@ async fn listen_to_signals(
     loop {
         tokio::select! {
             Some(msg) = chat_chunks.next() => {
-                if let Ok(args) = msg.args() {
-                    let _ = tx.send(DaemonSignal::ChatChunk(args.delta_text));
+                match msg.args() {
+                    Ok(args) => {
+                        let _ = tx.send(DaemonSignal::ChatChunk(args.delta_text));
+                    }
+                    Err(e) => {
+                        tracing::warn!("Ошибка разбора аргументов сигнала chat_chunk: {:?}", e);
+                    }
                 }
             }
             Some(_) = chat_completeds.next() => {
                 let _ = tx.send(DaemonSignal::ChatCompleted);
             }
             Some(msg) = ocr_completeds.next() => {
-                if let Ok(args) = msg.args() {
-                    let _ = tx.send(DaemonSignal::OcrCompleted(args.text));
+                match msg.args() {
+                    Ok(args) => {
+                        let _ = tx.send(DaemonSignal::OcrCompleted(args.text));
+                    }
+                    Err(e) => {
+                        tracing::warn!("Ошибка разбора аргументов сигнала ocr_completed: {:?}", e);
+                    }
                 }
             }
             Some(msg) = asr_completeds.next() => {
-                if let Ok(args) = msg.args() {
-                    let _ = tx.send(DaemonSignal::AsrCompleted(args.text));
+                match msg.args() {
+                    Ok(args) => {
+                        let _ = tx.send(DaemonSignal::AsrCompleted(args.text));
+                    }
+                    Err(e) => {
+                        tracing::warn!("Ошибка разбора аргументов сигнала asr_completed: {:?}", e);
+                    }
                 }
             }
             Some(msg) = error_occurreds.next() => {
-                if let Ok(args) = msg.args() {
-                    let _ = tx.send(DaemonSignal::ErrorOccurred(args.message));
+                match msg.args() {
+                    Ok(args) => {
+                        let _ = tx.send(DaemonSignal::ErrorOccurred(args.message));
+                    }
+                    Err(e) => {
+                        tracing::warn!("Ошибка разбора аргументов сигнала error_occurred: {:?}", e);
+                    }
                 }
             }
         }
