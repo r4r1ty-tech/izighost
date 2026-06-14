@@ -44,7 +44,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(log_level));
 
     let cache_dir = izighost_daemon::config::resolve_path(&config.general.cache_dir);
-    let logs_dir = cache_dir.join("logs");
+    let logs_dir = cache_dir.join("logs").join("daemon");
     let _ = std::fs::create_dir_all(&logs_dir);
 
     let file_appender = tracing_appender::rolling::daily(&logs_dir, "izighost-daemon.log");

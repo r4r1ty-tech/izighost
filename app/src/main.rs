@@ -224,7 +224,7 @@ fn apply_dark_theme(ctx: &egui::Context) {
 fn main() -> Result<(), eframe::Error> {
     // Инициализируем логирование
     let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
-    let logs_dir = std::path::PathBuf::from(home).join(".cache/izighost/logs");
+    let logs_dir = std::path::PathBuf::from(home).join(".cache/izighost/logs").join("client");
     let _ = std::fs::create_dir_all(&logs_dir);
 
     let file_appender = tracing_appender::rolling::daily(&logs_dir, "izighost.log");
