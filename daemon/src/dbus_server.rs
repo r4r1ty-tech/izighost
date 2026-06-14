@@ -8,6 +8,7 @@ pub struct DaemonInterface {
     profile_manager: ProfileManager,
     context_store: ContextStore,
     rvms_manager: RvmsManager,
+    recording_state: std::sync::Mutex<Option<(std::process::Child, std::path::PathBuf)>>,
 }
 
 impl DaemonInterface {
@@ -20,6 +21,7 @@ impl DaemonInterface {
             profile_manager,
             context_store,
             rvms_manager,
+            recording_state: std::sync::Mutex::new(None),
         }
     }
 }
@@ -150,6 +152,46 @@ impl DaemonInterface {
     }
 
     async fn start_listening(&self) -> zbus::fdo::Result<()> {
+        let timestamp = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0);
+        let temp_path = std::env::temp_dir().join(format!("izighost_recording_{}.wav", timestamp));
+
+        tracing::info!("Запуск записи звука в {:?}", temp_path);
+
+        // Перед запуском новой записи останавливаем предыдущую, если она зависла
+        {
+            let mut state = self.recording_state.lock().unwrap();
+            if let Some((mut child, path)) = state.take() {
+                tracing::warn!("Остановка зависшей записи: {:?}", path);
+                let _ = child.kill();
+                let _ = child.wait();
+                let _ = std::fs::remove_file(&path);
+            }
+        }
+
+        // Запуск GStreamer для записи в 16кГц 16-бит моно PCM WAV
+        let child = std::process::Command::new("gst-launch-1.0")
+            .arg("autoaudiosrc")
+            .arg("!")
+            .arg("audioconvert")
+            .arg("!")
+            .arg("audioresample")
+            .arg("!")
+            .arg("audio/x-raw,format=S16LE,channels=1,rate=16000")
+            .arg("!")
+            .arg("wavenc")
+            .arg("!")
+            .arg("filesink")
+            .arg(format!("location={}", temp_path.to_string_lossy()))
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .map_err(|e| zbus::fdo::Error::Failed(format!("Не удалось запустить gst-launch-1.0: {}", e)))?;
+
+        {
+            let mut state = self.recording_state.lock().unwrap();
+            *state = Some((child, temp_path));
+        }
+
         Ok(())
     }
 
@@ -157,16 +199,74 @@ impl DaemonInterface {
         &self,
         #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
     ) -> zbus::fdo::Result<()> {
-        // Имитируем распознавание речи
-        let mock_asr = "Это текст, распознанный из вашего голоса (ASR заглушка).";
+        let recording = {
+            let mut state = self.recording_state.lock().unwrap();
+            state.take()
+        };
 
-        self.context_store
-            .set_last_preview(Some(mock_asr.to_string()))
-            .await;
+        let Some((mut child, path)) = recording else {
+            return Err(zbus::fdo::Error::Failed("Запись звука не запущена".to_string()));
+        };
 
-        Self::asr_completed(&emitter, mock_asr)
-            .await
-            .map_err(|e| zbus::fdo::Error::Failed(e.to_string()))?;
+        tracing::info!("Остановка записи звука...");
+
+        // Отправляем SIGINT (kill -2), чтобы gst-launch завершил запись с записью wav-заголовков
+        let pid = child.id();
+        let _ = std::process::Command::new("kill")
+            .arg("-2")
+            .arg(pid.to_string())
+            .status();
+
+        // Ожидаем завершения процесса
+        let _ = child.wait();
+
+        // Загружаем профиль и API-ключ для распознавания
+        let profile = self.context_store.get_active_profile().await;
+        
+        let api_key = if let Some(ref p) = profile {
+            if !p.id.is_empty() {
+                izighost_common::KeyringStore::get_password(&format!("asr_api_key_{}", p.id))
+                    .await
+                    .ok()
+                    .flatten()
+                    .unwrap_or_default()
+            } else {
+                "".to_string()
+            }
+        } else {
+            "".to_string()
+        };
+
+        // Запускаем ASR в фоновом потоке
+        let emitter_clone = emitter.clone().into_owned();
+        let context_store = self.context_store.clone();
+
+        tokio::spawn(async move {
+            let path_clone = path.clone();
+            let result = crate::audio::transcribe_audio(&path_clone, profile.as_ref(), &api_key).await;
+            
+            let _ = std::fs::remove_file(&path); // Очищаем временный аудиофайл в любом случае
+
+            match result {
+                Ok(text) => {
+                    tracing::info!("Успешно распознано: {}", text);
+                    context_store.set_last_preview(Some(text.clone())).await;
+                    if let Err(e) = Self::asr_completed(&emitter_clone, &text).await {
+                        tracing::error!("Ошибка отправки D-Bus сигнала asr_completed: {:?}", e);
+                    }
+                }
+                Err(e) => {
+                    let err_msg = format!("Ошибка распознавания речи (ASR): {}", e);
+                    tracing::error!("{}", err_msg);
+                    if let Err(sig_err) = Self::error_occurred(&emitter_clone, &err_msg).await {
+                        tracing::error!(
+                            "Ошибка отправки D-Bus сигнала error_occurred: {:?}",
+                            sig_err
+                        );
+                    }
+                }
+            }
+        });
 
         Ok(())
     }
