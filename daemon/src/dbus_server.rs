@@ -90,8 +90,43 @@ impl DaemonInterface {
         // Запускаем OCR пайплайн в фоновом Tokio-потоке
         let emitter_clone = emitter.clone().into_owned();
         let context_store = self.context_store.clone();
+        let profile = self.context_store.get_active_profile().await;
         tokio::spawn(async move {
-            match crate::ocr::trigger_ocr_pipeline(node_id).await {
+            match crate::ocr::trigger_ocr_pipeline(node_id, profile).await {
+                Ok(text) => {
+                    context_store.set_last_preview(Some(text.clone())).await;
+                    if let Err(e) = Self::ocr_completed(&emitter_clone, &text).await {
+                        tracing::error!("Ошибка отправки D-Bus сигнала ocr_completed: {:?}", e);
+                    }
+                }
+                Err(e) => {
+                    let err_msg = format!("Ошибка распознавания текста (OCR): {}", e);
+                    tracing::error!("{}", err_msg);
+                    if let Err(sig_err) = Self::error_occurred(&emitter_clone, &err_msg).await {
+                        tracing::error!(
+                            "Ошибка отправки D-Bus сигнала error_occurred: {:?}",
+                            sig_err
+                        );
+                    }
+                }
+            }
+        });
+
+        Ok(())
+    }
+
+    async fn trigger_ocr_from_file(
+        &self,
+        file_path: String,
+        #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
+    ) -> zbus::fdo::Result<()> {
+        let emitter_clone = emitter.clone().into_owned();
+        let context_store = self.context_store.clone();
+        let path = std::path::PathBuf::from(file_path);
+        let profile = self.context_store.get_active_profile().await;
+
+        tokio::spawn(async move {
+            match crate::ocr::run_ocr_on_file(path, profile).await {
                 Ok(text) => {
                     context_store.set_last_preview(Some(text.clone())).await;
                     if let Err(e) = Self::ocr_completed(&emitter_clone, &text).await {

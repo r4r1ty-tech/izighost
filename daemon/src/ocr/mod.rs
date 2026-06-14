@@ -68,15 +68,27 @@ pub fn preprocess_image(input_path: &Path) -> Result<PathBuf, anyhow::Error> {
 }
 
 /// Запуск Tesseract OCR на подготовленном скриншоте.
-pub fn run_ocr(image_path: &Path) -> Result<String, anyhow::Error> {
-    let tessdata_dir = "/usr/share/tesseract/tessdata";
-    let has_rus = Path::new(tessdata_dir).join("rus.traineddata").exists();
+pub fn run_ocr(image_path: &Path, tessdata_dir: Option<PathBuf>) -> Result<String, anyhow::Error> {
+    let fallback_dir = PathBuf::from("/usr/share/tesseract/tessdata");
+    let actual_dir = match tessdata_dir {
+        Some(ref d) => d.as_path(),
+        None => fallback_dir.as_path(),
+    };
+
+    let has_rus = actual_dir.join("rus.traineddata").exists();
     let langs = if has_rus { "eng+rus" } else { "eng" };
 
     tracing::info!("Запуск Tesseract OCR (язык: {}) на {:?}", langs, image_path);
 
-    let mut lt = leptess::LepTess::new(Some(tessdata_dir), langs)
-        .map_err(|e| anyhow::anyhow!("Не удалось инициализировать Tesseract: {:?}", e))?;
+    let mut lt = leptess::LepTess::new(
+        Some(
+            actual_dir
+                .to_str()
+                .unwrap_or("/usr/share/tesseract/tessdata"),
+        ),
+        langs,
+    )
+    .map_err(|e| anyhow::anyhow!("Не удалось инициализировать Tesseract: {:?}", e))?;
 
     lt.set_image(image_path)
         .map_err(|e| anyhow::anyhow!("Не удалось загрузить изображение в Tesseract: {:?}", e))?;
@@ -88,25 +100,124 @@ pub fn run_ocr(image_path: &Path) -> Result<String, anyhow::Error> {
     Ok(text)
 }
 
+/// Автоматическое скачивание файлов Tesseract traineddata, если они отсутствуют.
+async fn ensure_tessdata_downloaded() -> Result<PathBuf, anyhow::Error> {
+    let home = std::env::var("HOME")
+        .map_err(|_| anyhow::anyhow!("Переменная окружения HOME не задана"))?;
+    let tessdata_dir = std::path::PathBuf::from(home).join(".cache/izighost/tessdata");
+
+    std::fs::create_dir_all(&tessdata_dir)?;
+
+    let files = ["eng.traineddata", "rus.traineddata"];
+    for file in &files {
+        let file_path = tessdata_dir.join(file);
+        if !file_path.exists() {
+            tracing::info!("Загрузка файла {} в {:?}", file, file_path);
+            let url = format!(
+                "https://github.com/tesseract-ocr/tessdata_fast/raw/main/{}",
+                file
+            );
+            let response = reqwest::get(&url).await?;
+            if !response.status().is_success() {
+                return Err(anyhow::anyhow!(
+                    "Ошибка загрузки файла tessdata ({}): {}",
+                    file,
+                    response.status()
+                ));
+            }
+            let content = response.bytes().await?;
+            std::fs::write(&file_path, content)?;
+        }
+    }
+
+    Ok(tessdata_dir)
+}
+
 /// Весь пайплайн: захват -> предобработка -> OCR -> очистка временных файлов.
-pub async fn trigger_ocr_pipeline(node_id: u32) -> Result<String, anyhow::Error> {
+pub async fn trigger_ocr_pipeline(
+    node_id: u32,
+    profile: Option<izighost_common::Profile>,
+) -> Result<String, anyhow::Error> {
     // 1. Захватываем кадр
     let raw_img_path = capture_screenshot(node_id)?;
 
+    // 2. Распознаем
+    run_ocr_on_file(raw_img_path, profile).await
+}
+
+/// Запуск OCR на готовом файле изображения (через Vision API или локально, с последующим удалением файлов).
+pub async fn run_ocr_on_file(
+    img_path: PathBuf,
+    profile: Option<izighost_common::Profile>,
+) -> Result<String, anyhow::Error> {
+    // 1. Извлекаем API ключ из Keyring для Vision конфига
+    let api_key = if let Some(ref p) = profile {
+        if !p.id.is_empty() {
+            izighost_common::KeyringStore::get_password(&format!("vision_api_key_{}", p.id))
+                .await
+                .ok()
+                .flatten()
+                .unwrap_or_default()
+        } else {
+            "".to_string()
+        }
+    } else {
+        "".to_string()
+    };
+
+    let ocr_result = if !api_key.is_empty() {
+        if let Some(ref p) = profile {
+            // Пробуем распознать через Vision API (Groq/OpenAI) с настройками из vision конфига
+            match run_vision_api_ocr(&img_path, &p.vision, &api_key).await {
+                Ok(text) => {
+                    let _ = std::fs::remove_file(&img_path);
+                    text
+                }
+                Err(e) => {
+                    // В случае ошибки (например, сбой сети) откатываемся на локальный Tesseract
+                    tracing::warn!("Ошибка Vision API OCR, откат на Tesseract: {:?}", e);
+                    run_local_tesseract_ocr_pipeline(img_path).await?
+                }
+            }
+        } else {
+            run_local_tesseract_ocr_pipeline(img_path).await?
+        }
+    } else {
+        // Если ключ не задан, используем локальный Tesseract
+        run_local_tesseract_ocr_pipeline(img_path).await?
+    };
+
+    Ok(ocr_result)
+}
+
+/// Вспомогательный метод для запуска локального OCR пайплайна Tesseract
+async fn run_local_tesseract_ocr_pipeline(img_path: PathBuf) -> Result<String, anyhow::Error> {
+    // 1. Обеспечиваем наличие языковых файлов rus/eng
+    let tessdata_dir = match ensure_tessdata_downloaded().await {
+        Ok(dir) => Some(dir),
+        Err(e) => {
+            tracing::warn!(
+                "Не удалось загрузить локальные файлы Tesseract: {:?}, используем системные",
+                e
+            );
+            None
+        }
+    };
+
     // 2. Предобрабатываем
-    let preprocessed_img_path = match preprocess_image(&raw_img_path) {
+    let preprocessed_img_path = match preprocess_image(&img_path) {
         Ok(path) => {
-            let _ = std::fs::remove_file(&raw_img_path);
+            let _ = std::fs::remove_file(&img_path);
             path
         }
         Err(e) => {
-            let _ = std::fs::remove_file(&raw_img_path);
+            let _ = std::fs::remove_file(&img_path);
             return Err(e);
         }
     };
 
     // 3. Запускаем OCR
-    let ocr_result = match run_ocr(&preprocessed_img_path) {
+    let ocr_result = match run_ocr(&preprocessed_img_path, tessdata_dir) {
         Ok(text) => {
             let _ = std::fs::remove_file(&preprocessed_img_path);
             text
@@ -118,6 +229,86 @@ pub async fn trigger_ocr_pipeline(node_id: u32) -> Result<String, anyhow::Error>
     };
 
     Ok(ocr_result)
+}
+
+/// Вызов Vision API (Groq / OpenAI) для распознавания текста на картинке
+async fn run_vision_api_ocr(
+    img_path: &Path,
+    vision_config: &izighost_common::VisionConfig,
+    api_key: &str,
+) -> Result<String, anyhow::Error> {
+    use base64::Engine;
+
+    // 1. Считываем картинку и кодируем в Base64
+    let img_bytes = std::fs::read(img_path)?;
+    let base64_data = base64::engine::general_purpose::STANDARD.encode(img_bytes);
+
+    // 2. Выбираем модель (для Groq используем Llama 4 Scout, для OpenAI — gpt-4o-mini)
+    let configured_model = &vision_config.model;
+    let base_url = &vision_config.base_url;
+    let model = if configured_model.contains("vision")
+        || configured_model.contains("gpt-4o")
+        || configured_model.contains("scout")
+    {
+        configured_model
+    } else if base_url.contains("groq") {
+        "meta-llama/llama-4-scout-17b-16e-instruct"
+    } else {
+        "gpt-4o-mini"
+    };
+
+    // 3. Формируем запрос
+    let client = reqwest::Client::new();
+    let url = format!("{}/chat/completions", base_url.trim_end_matches('/'));
+
+    let image_url = format!("data:image/png;base64,{}", base64_data);
+
+    // Строим content массив в зависимости от use_ocr_prompt
+    let mut content = serde_json::json!([]);
+    if vision_config.use_ocr_prompt {
+        content.as_array_mut().unwrap().push(serde_json::json!({
+            "type": "text",
+            "text": vision_config.ocr_prompt
+        }));
+    }
+    content.as_array_mut().unwrap().push(serde_json::json!({
+        "type": "image_url",
+        "image_url": {
+            "url": image_url
+        }
+    }));
+
+    let payload = serde_json::json!({
+        "model": model,
+        "messages": [
+            {
+                "role": "user",
+                "content": content
+            }
+        ],
+        "temperature": 0.0
+    });
+
+    let res = client
+        .post(&url)
+        .header("Authorization", format!("Bearer {}", api_key))
+        .json(&payload)
+        .send()
+        .await?;
+
+    if !res.status().is_success() {
+        let err_text = res.text().await?;
+        return Err(anyhow::anyhow!("API Error ({}): {}", url, err_text));
+    }
+
+    let json: serde_json::Value = res.json().await?;
+    let content = json["choices"][0]["message"]["content"]
+        .as_str()
+        .ok_or_else(|| anyhow::anyhow!("Invalid response format: {}", json))?
+        .trim()
+        .to_string();
+
+    Ok(content)
 }
 
 #[cfg(test)]
@@ -147,7 +338,7 @@ mod tests {
         assert!(preprocessed_path.exists());
 
         // Запуск OCR на заглушке (может вернуть пустую строку, так как текста нет, но не должно падать)
-        let ocr_res = run_ocr(&preprocessed_path);
+        let ocr_res = run_ocr(&preprocessed_path, None);
         assert!(ocr_res.is_ok());
 
         // Чистим за собой
