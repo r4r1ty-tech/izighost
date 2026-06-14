@@ -380,10 +380,7 @@ impl eframe::App for IziGhostApp {
 
         // 2. Отрисовка дополнительного окна настроек (если флаг активен)
         if self.hud_state.show_preferences {
-            let mut preferences_state = std::mem::replace(
-                &mut self.preferences_state,
-                PreferencesState::new(self.gui_event_tx.clone()),
-            );
+            let preferences_state = &mut self.preferences_state;
             let dbus_client = self.dbus_client.clone();
             let mut show_preferences = self.hud_state.show_preferences;
 
@@ -411,7 +408,6 @@ impl eframe::App for IziGhostApp {
                 },
             );
 
-            self.preferences_state = preferences_state;
             self.hud_state.show_preferences = show_preferences;
         }
 

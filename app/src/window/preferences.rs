@@ -281,8 +281,7 @@ impl PreferencesState {
                     std::time::SystemTime::now()
                         .duration_since(std::time::UNIX_EPOCH)
                         .expect("System time is set before Unix Epoch")
-                        .as_millis()
-                        % 10000
+                        .as_nanos()
                 );
                 let new_profile = Profile {
                     id: random_id,
