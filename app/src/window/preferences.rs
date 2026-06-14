@@ -11,7 +11,7 @@ use tokio::sync::mpsc::UnboundedSender;
 pub enum GuiEvent {
     ProfilesLoaded(Vec<String>),
     ActiveProfileLoaded(Profile),
-    ProfileDetailsLoaded(Profile, Option<String>, Option<String>), // profile, llm_key, asr_key
+    ProfileDetailsLoaded(Profile, Option<String>, Option<String>, Option<String>), // profile, llm_key, asr_key, vision_key
     ProfileSaved(Profile),
     ProfileDeleted(String),
     RvmsStarted(u32),
@@ -29,8 +29,10 @@ pub struct PreferencesState {
     pub edit_profile: Option<Profile>,
     pub llm_key_input: String,
     pub asr_key_input: String,
+    pub vision_key_input: String,
     pub show_llm_key: bool,
     pub show_asr_key: bool,
+    pub show_vision_key: bool,
 
     // Менеджмент ошибок и уведомлений
     pub status_message: Option<(String, bool)>, // (текст, это_ошибка)
@@ -50,8 +52,10 @@ impl PreferencesState {
             edit_profile: None,
             llm_key_input: String::new(),
             asr_key_input: String::new(),
+            vision_key_input: String::new(),
             show_llm_key: false,
             show_asr_key: false,
+            show_vision_key: false,
             status_message: None,
             is_rvms_active: false,
             pipewire_node_id: None,
@@ -105,13 +109,15 @@ impl PreferencesState {
             GuiEvent::ActiveProfileLoaded(active) => {
                 self.active_id = Some(active.id);
             }
-            GuiEvent::ProfileDetailsLoaded(profile, llm_key, asr_key) => {
+            GuiEvent::ProfileDetailsLoaded(profile, llm_key, asr_key, vision_key) => {
                 self.selected_id = Some(profile.id.clone());
                 self.llm_key_input = llm_key.unwrap_or_default();
                 self.asr_key_input = asr_key.unwrap_or_default();
+                self.vision_key_input = vision_key.unwrap_or_default();
                 self.edit_profile = Some(profile);
                 self.show_llm_key = false;
                 self.show_asr_key = false;
+                self.show_vision_key = false;
             }
             GuiEvent::ProfileSaved(profile) => {
                 self.status_message = Some(("Профиль успешно сохранен!".to_string(), false));
@@ -169,6 +175,7 @@ impl PreferencesState {
                     Ok(profile) => {
                         let llm_key_name = format!("llm_api_key_{}", id);
                         let asr_key_name = format!("asr_api_key_{}", id);
+                        let vision_key_name = format!("vision_api_key_{}", id);
 
                         let llm_key = KeyringStore::get_password(&llm_key_name)
                             .await
@@ -176,8 +183,11 @@ impl PreferencesState {
                         let asr_key = KeyringStore::get_password(&asr_key_name)
                             .await
                             .unwrap_or(None);
+                        let vision_key = KeyringStore::get_password(&vision_key_name)
+                            .await
+                            .unwrap_or(None);
 
-                        let _ = tx.send(GuiEvent::ProfileDetailsLoaded(profile, llm_key, asr_key));
+                        let _ = tx.send(GuiEvent::ProfileDetailsLoaded(profile, llm_key, asr_key, vision_key));
                     }
                     Err(e) => {
                         let _ = tx.send(GuiEvent::Error(format!(
@@ -207,9 +217,7 @@ impl PreferencesState {
                 self.draw_sidebar(ui, dbus_client);
             });
 
-        let main_frame = egui::Frame::NONE
-            .fill(theme::BG_PRIMARY)
-            .inner_margin(16.0);
+        let main_frame = egui::Frame::NONE.fill(theme::BG_PRIMARY).inner_margin(16.0);
 
         egui::CentralPanel::default()
             .frame(main_frame)
@@ -251,11 +259,9 @@ impl PreferencesState {
 
                         let btn = ui.add_sized(
                             [ui.available_width(), 30.0],
-                            egui::Button::new(
-                                RichText::new(text).size(12.0).color(text_color),
-                            )
-                            .fill(btn_color)
-                            .corner_radius(6.0),
+                            egui::Button::new(RichText::new(text).size(12.0).color(text_color))
+                                .fill(btn_color)
+                                .corner_radius(6.0),
                         );
 
                         if btn.clicked() {
@@ -268,7 +274,8 @@ impl PreferencesState {
             ui.add_space(8.0);
 
             // Кнопка создания нового профиля
-            if theme::green_button(ui, "+ Новый профиль", ui.available_width()).clicked() {
+            if theme::green_button(ui, "+ Новый профиль", ui.available_width()).clicked()
+            {
                 let random_id = format!(
                     "profile_{}",
                     std::time::SystemTime::now()
@@ -304,7 +311,8 @@ impl PreferencesState {
             ui.add_space(6.0);
 
             if self.is_rvms_active {
-                if theme::danger_button(ui, "Остановить RVMS", ui.available_width()).clicked() {
+                if theme::danger_button(ui, "Остановить RVMS", ui.available_width()).clicked()
+                {
                     if let Some(client) = dbus_client {
                         let client = client.clone();
                         let tx = self.event_tx.clone();
@@ -323,7 +331,8 @@ impl PreferencesState {
                         });
                     }
                 }
-            } else if theme::accent_button(ui, "Запустить RVMS", ui.available_width()).clicked() {
+            } else if theme::accent_button(ui, "Запустить RVMS", ui.available_width()).clicked()
+            {
                 if let Some(client) = dbus_client {
                     let client = client.clone();
                     let tx = self.event_tx.clone();
@@ -333,10 +342,8 @@ impl PreferencesState {
                                 let _ = tx.send(GuiEvent::RvmsStarted(node_id));
                             }
                             Err(e) => {
-                                let _ = tx.send(GuiEvent::Error(format!(
-                                    "Ошибка запуска RVMS: {}",
-                                    e
-                                )));
+                                let _ =
+                                    tx.send(GuiEvent::Error(format!("Ошибка запуска RVMS: {}", e)));
                             }
                         }
                     });
@@ -355,14 +362,17 @@ impl PreferencesState {
             theme::notification_frame(is_err).show(ui, |ui| {
                 ui.horizontal(|ui| {
                     let color = if is_err { theme::RED } else { theme::GREEN };
-                    ui.label(RichText::new(msg_clone).color(color).strong());
+
+                    // Ограничиваем ширину текста и включаем автоперенос, чтобы не выдавливать кнопку закрытия
+                    let label =
+                        egui::Label::new(RichText::new(msg_clone).color(color).strong()).wrap();
+                    ui.add_sized([ui.available_width() - 24.0, 0.0], label);
+
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if ui
                             .add(
                                 egui::Button::new(
-                                    RichText::new("\u{2715}")
-                                        .size(11.0)
-                                        .color(theme::TEXT_SECONDARY),
+                                    RichText::new("x").size(11.0).color(theme::TEXT_SECONDARY),
                                 )
                                 .frame(false),
                             )
@@ -392,8 +402,10 @@ impl PreferencesState {
         // Разделяем заимствования `self` для замыкания `ScrollArea::show`
         let llm_key_input = &mut self.llm_key_input;
         let asr_key_input = &mut self.asr_key_input;
+        let vision_key_input = &mut self.vision_key_input;
         let show_llm_key = &mut self.show_llm_key;
         let show_asr_key = &mut self.show_asr_key;
+        let show_vision_key = &mut self.show_vision_key;
         let active_id = &self.active_id;
         let event_tx = self.event_tx.clone();
 
@@ -467,9 +479,7 @@ impl PreferencesState {
                 ui.horizontal(|ui| {
                     ui.add_sized(
                         [120.0, 20.0],
-                        egui::Label::new(
-                            RichText::new("Вакансия:").color(theme::TEXT_SECONDARY),
-                        ),
+                        egui::Label::new(RichText::new("Вакансия:").color(theme::TEXT_SECONDARY)),
                     );
                     ui.add(
                         egui::TextEdit::singleline(&mut profile.vacancy_path)
@@ -516,13 +526,28 @@ impl PreferencesState {
                 theme::section_title(ui, "LLM (Генератор ответов)");
 
                 ui.horizontal(|ui| {
-                    ui.add_sized([120.0, 20.0], egui::Label::new(RichText::new("Провайдер:").color(theme::TEXT_SECONDARY)));
+                    ui.add_sized(
+                        [120.0, 20.0],
+                        egui::Label::new(RichText::new("Провайдер:").color(theme::TEXT_SECONDARY)),
+                    );
                     egui::ComboBox::from_id_salt("llm_provider")
                         .selected_text(&profile.llm.provider)
                         .show_ui(ui, |ui| {
-                            ui.selectable_value(&mut profile.llm.provider, "openai_compat".to_string(), "OpenAI Compatible");
-                            ui.selectable_value(&mut profile.llm.provider, "openai".to_string(), "OpenAI (Official)");
-                            ui.selectable_value(&mut profile.llm.provider, "anthropic".to_string(), "Anthropic (Claude)");
+                            ui.selectable_value(
+                                &mut profile.llm.provider,
+                                "openai_compat".to_string(),
+                                "OpenAI Compatible",
+                            );
+                            ui.selectable_value(
+                                &mut profile.llm.provider,
+                                "openai".to_string(),
+                                "OpenAI (Official)",
+                            );
+                            ui.selectable_value(
+                                &mut profile.llm.provider,
+                                "anthropic".to_string(),
+                                "Anthropic (Claude)",
+                            );
                         });
                 });
                 theme::form_row(ui, "Модель:", &mut profile.llm.model);
@@ -537,9 +562,7 @@ impl PreferencesState {
                             RichText::new("Температура:").color(theme::TEXT_SECONDARY),
                         ),
                     );
-                    ui.add(
-                        egui::Slider::new(&mut profile.llm.temperature, 0.0..=2.0).step_by(0.1),
-                    );
+                    ui.add(egui::Slider::new(&mut profile.llm.temperature, 0.0..=2.0).step_by(0.1));
                 });
             });
 
@@ -550,17 +573,88 @@ impl PreferencesState {
                 theme::section_title(ui, "ASR (Голосовой ввод)");
 
                 ui.horizontal(|ui| {
-                    ui.add_sized([120.0, 20.0], egui::Label::new(RichText::new("Провайдер:").color(theme::TEXT_SECONDARY)));
+                    ui.add_sized(
+                        [120.0, 20.0],
+                        egui::Label::new(RichText::new("Провайдер:").color(theme::TEXT_SECONDARY)),
+                    );
                     egui::ComboBox::from_id_salt("asr_provider")
                         .selected_text(&profile.asr.provider)
                         .show_ui(ui, |ui| {
-                            ui.selectable_value(&mut profile.asr.provider, "openai_compat".to_string(), "OpenAI Compatible");
-                            ui.selectable_value(&mut profile.asr.provider, "openai".to_string(), "OpenAI Whisper");
+                            ui.selectable_value(
+                                &mut profile.asr.provider,
+                                "openai_compat".to_string(),
+                                "OpenAI Compatible",
+                            );
+                            ui.selectable_value(
+                                &mut profile.asr.provider,
+                                "openai".to_string(),
+                                "OpenAI Whisper",
+                            );
                         });
                 });
                 theme::form_row(ui, "Модель:", &mut profile.asr.model);
                 theme::form_row(ui, "Базовый URL:", &mut profile.asr.base_url);
                 theme::form_password_row(ui, "API ключ:", asr_key_input, show_asr_key);
+            });
+
+            ui.add_space(10.0);
+
+            // ── Настройки Vision (OCR) ──
+            theme::section_frame().show(ui, |ui| {
+                theme::section_title(ui, "Vision (Распознавание скриншотов)");
+
+                ui.label(
+                    RichText::new("Модель с поддержкой зрения для извлечения текста из скриншотов.\nЕсли ключ не задан — будет использован локальный Tesseract OCR.")
+                        .size(11.0)
+                        .color(theme::TEXT_MUTED),
+                );
+                ui.add_space(6.0);
+
+                ui.horizontal(|ui| {
+                    ui.add_sized(
+                        [120.0, 20.0],
+                        egui::Label::new(RichText::new("Провайдер:").color(theme::TEXT_SECONDARY)),
+                    );
+                    egui::ComboBox::from_id_salt("vision_provider")
+                        .selected_text(&profile.vision.provider)
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(
+                                &mut profile.vision.provider,
+                                "openai_compat".to_string(),
+                                "OpenAI Compatible",
+                            );
+                            ui.selectable_value(
+                                &mut profile.vision.provider,
+                                "openai".to_string(),
+                                "OpenAI (Official)",
+                            );
+                            ui.selectable_value(
+                                &mut profile.vision.provider,
+                                "groq".to_string(),
+                                "Groq",
+                            );
+                        });
+                });
+                theme::form_row(ui, "Модель:", &mut profile.vision.model);
+                theme::form_row(ui, "Базовый URL:", &mut profile.vision.base_url);
+                theme::form_password_row(ui, "API ключ:", vision_key_input, show_vision_key);
+
+                ui.add_space(6.0);
+                ui.checkbox(
+                    &mut profile.vision.use_ocr_prompt,
+                    "Использовать промпт для извлечения текста (для универсальных LLM)",
+                );
+
+                if profile.vision.use_ocr_prompt {
+                    ui.add_space(4.0);
+                    ui.label(RichText::new("Промпт для распознавания:").color(theme::TEXT_SECONDARY));
+                    ui.add(
+                        egui::TextEdit::multiline(&mut profile.vision.ocr_prompt)
+                            .hint_text("Extract all text...")
+                            .desired_rows(3)
+                            .desired_width(ui.available_width()),
+                    );
+                }
             });
 
             ui.add_space(16.0);
@@ -572,6 +666,7 @@ impl PreferencesState {
                         profile,
                         llm_key_input.clone(),
                         asr_key_input.clone(),
+                        vision_key_input.clone(),
                         dbus_client,
                         event_tx.clone(),
                     );
@@ -580,7 +675,11 @@ impl PreferencesState {
                 ui.add_space(6.0);
 
                 let is_active = Some(profile.id.clone()) == *active_id;
-                let activate_text = if is_active { "Активен" } else { "Использовать" };
+                let activate_text = if is_active {
+                    "Активен"
+                } else {
+                    "Использовать"
+                };
                 let activate_btn = ui.add_enabled(
                     !is_active,
                     egui::Button::new(
@@ -625,8 +724,10 @@ impl PreferencesState {
                             tokio::spawn(async move {
                                 let llm_key_name = format!("llm_api_key_{}", profile_id);
                                 let asr_key_name = format!("asr_api_key_{}", profile_id);
+                                let vision_key_name = format!("vision_api_key_{}", profile_id);
                                 let _ = KeyringStore::delete_password(&llm_key_name).await;
                                 let _ = KeyringStore::delete_password(&asr_key_name).await;
+                                let _ = KeyringStore::delete_password(&vision_key_name).await;
 
                                 match client.delete_profile(&profile_id).await {
                                     Ok(_) => {
@@ -654,6 +755,7 @@ impl PreferencesState {
         profile: &Profile,
         llm_key: String,
         asr_key: String,
+        vision_key: String,
         dbus_client: &Option<Arc<DaemonClient>>,
         event_tx: UnboundedSender<GuiEvent>,
     ) {
@@ -662,6 +764,7 @@ impl PreferencesState {
         // Очищаем секретные ключи в объекте профиля перед сохранением в plain-text YAML
         profile_to_save.llm.api_key = "".to_string();
         profile_to_save.asr.api_key = "".to_string();
+        profile_to_save.vision.api_key = "".to_string();
 
         if let Some(client) = dbus_client {
             let client = client.clone();
@@ -670,6 +773,7 @@ impl PreferencesState {
                 // 1. Сохраняем ключи в безопасном хранилище Keyring
                 let llm_key_name = format!("llm_api_key_{}", profile_to_save.id);
                 let asr_key_name = format!("asr_api_key_{}", profile_to_save.id);
+                let vision_key_name = format!("vision_api_key_{}", profile_to_save.id);
 
                 if !llm_key.is_empty() {
                     let _ = KeyringStore::set_password(&llm_key_name, &llm_key).await;
@@ -681,6 +785,12 @@ impl PreferencesState {
                     let _ = KeyringStore::set_password(&asr_key_name, &asr_key).await;
                 } else {
                     let _ = KeyringStore::delete_password(&asr_key_name).await;
+                }
+
+                if !vision_key.is_empty() {
+                    let _ = KeyringStore::set_password(&vision_key_name, &vision_key).await;
+                } else {
+                    let _ = KeyringStore::delete_password(&vision_key_name).await;
                 }
 
                 // 2. Отправляем профиль демону для сохранения
