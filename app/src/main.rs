@@ -230,7 +230,7 @@ fn main() -> Result<(), eframe::Error> {
         options,
         Box::new(move |cc| {
             apply_dark_theme(&cc.egui_ctx);
-            Ok(Box::new(IziGhostApp::new(dbus_client, signal_rx)))
+            Ok(Box::new(IziGhostApp::new(dbus_client, signal_rx, cc.egui_ctx.clone())))
         }),
     )
 }
@@ -255,8 +255,34 @@ impl IziGhostApp {
     fn new(
         dbus_client: Option<Arc<dbus::DaemonClient>>,
         signal_rx: Option<UnboundedReceiver<dbus::DaemonSignal>>,
+        ctx: egui::Context,
     ) -> Self {
-        let (gui_event_tx, gui_event_rx) = unbounded_channel();
+        let (gui_event_tx, mut gui_event_rx_raw) = unbounded_channel();
+        let (gui_event_forward_tx, gui_event_rx) = unbounded_channel();
+
+        // Форвардер событий с вызовом request_repaint()
+        let ctx_clone = ctx.clone();
+        tokio::spawn(async move {
+            while let Some(event) = gui_event_rx_raw.recv().await {
+                let _ = gui_event_forward_tx.send(event);
+                ctx_clone.request_repaint();
+            }
+        });
+
+        // Форвардер D-Bus сигналов с вызовом request_repaint()
+        let signal_rx = if let Some(mut rx) = signal_rx {
+            let (sig_tx, sig_rx) = unbounded_channel();
+            let ctx_clone = ctx.clone();
+            tokio::spawn(async move {
+                while let Some(sig) = rx.recv().await {
+                    let _ = sig_tx.send(sig);
+                    ctx_clone.request_repaint();
+                }
+            });
+            Some(sig_rx)
+        } else {
+            None
+        };
 
         let preferences_state = PreferencesState::new(gui_event_tx.clone());
         preferences_state.init(&dbus_client);
@@ -387,7 +413,9 @@ impl eframe::App for IziGhostApp {
             self.hud_state.show_preferences = show_preferences;
         }
 
-        // Запрашиваем перерисовку для плавной обработки асинхронных сигналов
-        ui.ctx().request_repaint();
+        // Включение repaint_after для анимации/обновлений, если запущены фоновые процессы (ASR/LLM/etc.)
+        if self.hud_state.is_generating || self.hud_state.is_listening {
+            ui.ctx().request_repaint_after(std::time::Duration::from_millis(200));
+        }
     }
 }
