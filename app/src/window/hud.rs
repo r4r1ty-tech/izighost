@@ -1,10 +1,10 @@
 use crate::dbus::{DaemonClient, DaemonSignal};
+use crate::window::preferences::GuiEvent;
 use crate::window::theme;
 use eframe::egui;
 use eframe::egui::{Color32, RichText, Stroke, Vec2};
 use std::sync::Arc;
 use tokio::sync::mpsc::Sender;
-use crate::window::preferences::GuiEvent;
 
 pub struct HudState {
     pub input_text: String,
@@ -21,6 +21,8 @@ pub struct HudState {
     pub is_cursor_on_virtual: bool,
     pub attached_screenshot_path: Option<String>,
     pub screenshot_texture: Option<egui::TextureHandle>,
+    pub is_taking_screenshot: bool,
+    pub is_transcribing: bool,
 }
 
 impl HudState {
@@ -40,6 +42,8 @@ impl HudState {
             is_cursor_on_virtual: false,
             attached_screenshot_path: None,
             screenshot_texture: None,
+            is_taking_screenshot: false,
+            is_transcribing: false,
         }
     }
 
@@ -67,12 +71,14 @@ impl HudState {
             DaemonSignal::AsrCompleted(text) => {
                 tracing::info!("GUI: Получен D-Bus сигнал AsrCompleted. Текст: {:?}", text);
                 self.is_listening = false;
+                self.is_transcribing = false;
                 self.input_text = text;
             }
             DaemonSignal::ErrorOccurred(msg) => {
                 tracing::error!("GUI: Получен D-Bus сигнал ErrorOccurred: {}", msg);
                 self.is_generating = false;
                 self.is_listening = false;
+                self.is_transcribing = false;
                 self.chat_messages
                     .push(("system".to_string(), format!("Ошибка: {}", msg)));
             }
@@ -87,8 +93,8 @@ impl HudState {
         self.screenshot_texture = load_texture_from_path(ctx, &path);
         self.attached_screenshot_path = Some(path);
         self.is_generating = false;
+        self.is_taking_screenshot = false;
     }
-
 
     /// Обработка вставки изображений из буфера обмена (Ctrl+V) и drag-and-drop файлов
     fn handle_image_inputs(&mut self, ui: &mut egui::Ui, _dbus_client: &Option<Arc<DaemonClient>>) {
@@ -98,19 +104,23 @@ impl HudState {
             tracing::info!("GUI: Нажата комбинация Ctrl+V для вставки изображения...");
             if let Ok(mut clipboard) = arboard::Clipboard::new() {
                 match clipboard.get_image() {
-                    Ok(image_data) => {
-                        match save_clipboard_image(image_data) {
-                            Ok(temp_path) => {
-                                let path_str = temp_path.to_string_lossy().to_string();
-                                tracing::info!("GUI: Буфер обмена сохранен во временный файл: {}", path_str);
-                                self.screenshot_texture = load_texture_from_path(ui.ctx(), &path_str);
-                                self.attached_screenshot_path = Some(path_str);
-                            }
-                            Err(e) => {
-                                tracing::error!("GUI: Ошибка сохранения изображения из буфера обмена: {:?}", e);
-                            }
+                    Ok(image_data) => match save_clipboard_image(image_data) {
+                        Ok(temp_path) => {
+                            let path_str = temp_path.to_string_lossy().to_string();
+                            tracing::info!(
+                                "GUI: Буфер обмена сохранен во временный файл: {}",
+                                path_str
+                            );
+                            self.screenshot_texture = load_texture_from_path(ui.ctx(), &path_str);
+                            self.attached_screenshot_path = Some(path_str);
                         }
-                    }
+                        Err(e) => {
+                            tracing::error!(
+                                "GUI: Ошибка сохранения изображения из буфера обмена: {:?}",
+                                e
+                            );
+                        }
+                    },
                     Err(e) => {
                         tracing::warn!("GUI: В буфере обмена нет изображения: {:?}", e);
                     }
@@ -244,7 +254,10 @@ impl HudState {
                                     eprintln!("Ошибка сохранения позиции курсора: {:?}", e);
                                 }
                                 if let Err(e) = client_clone.warp_to_virtual_monitor().await {
-                                    eprintln!("Ошибка перемещения курсора на виртуальный монитор: {:?}", e);
+                                    eprintln!(
+                                        "Ошибка перемещения курсора на виртуальный монитор: {:?}",
+                                        e
+                                    );
                                 }
                             } else {
                                 if let Err(e) = client_clone.restore_cursor_position().await {
@@ -327,6 +340,8 @@ impl HudState {
         let mut extra_offset = 48.0;
         if self.screenshot_texture.is_some() {
             extra_offset += 72.0;
+        } else if self.is_taking_screenshot || self.is_transcribing {
+            extra_offset += 32.0;
         }
         let height = ui.available_height() - extra_offset;
 
@@ -398,6 +413,36 @@ impl HudState {
         dbus_client: &Option<Arc<DaemonClient>>,
         gui_event_tx: Sender<GuiEvent>,
     ) {
+        if self.is_taking_screenshot {
+            ui.vertical(|ui| {
+                ui.horizontal(|ui| {
+                    ui.add(egui::Spinner::new().size(14.0));
+                    ui.add_space(4.0);
+                    ui.label(
+                        RichText::new("Снимок экрана обрабатывается...")
+                            .italics()
+                            .color(theme::TEXT_MUTED),
+                    );
+                });
+                ui.add_space(4.0);
+            });
+        }
+
+        if self.is_transcribing {
+            ui.vertical(|ui| {
+                ui.horizontal(|ui| {
+                    ui.add(egui::Spinner::new().size(14.0));
+                    ui.add_space(4.0);
+                    ui.label(
+                        RichText::new("Расшифровка голоса...")
+                            .italics()
+                            .color(theme::TEXT_MUTED),
+                    );
+                });
+                ui.add_space(4.0);
+            });
+        }
+
         let mut remove_screenshot = false;
         if let Some(ref texture) = self.screenshot_texture {
             ui.vertical(|ui| {
@@ -406,12 +451,16 @@ impl HudState {
                     let aspect_ratio = size.x / size.y;
                     let height = 60.0;
                     let width = height * aspect_ratio;
-                    
+
                     // Рисуем картинку с помощью egui::Image
-                    ui.add(egui::Image::new(texture).max_height(height).max_width(width));
+                    ui.add(
+                        egui::Image::new(texture)
+                            .max_height(height)
+                            .max_width(width),
+                    );
 
                     // Кнопка удаления прикрепленного скриншота
-                    if ui.button("❌").on_hover_text("Удалить скриншот").clicked() {
+                    if ui.button("x").on_hover_text("Удалить скриншот").clicked() {
                         remove_screenshot = true;
                     }
                 });
@@ -430,10 +479,11 @@ impl HudState {
         ui.horizontal(|ui| {
             // Кнопка скриншота (OCR)
             let ocr_btn = ui
-                .add(
+                .add_enabled(
+                    !self.is_taking_screenshot,
                     egui::Button::new(
-                        RichText::new("\u{1F4F7}")
-                            .size(16.0)
+                        RichText::new("Экран")
+                            .size(12.0)
                             .color(theme::TEXT_SECONDARY),
                     )
                     .fill(theme::BG_BUTTON)
@@ -446,7 +496,7 @@ impl HudState {
                 tracing::info!("GUI: Нажата кнопка скриншота (фотоаппарат)");
                 if let Some(client) = dbus_client {
                     let client = client.clone();
-                    self.is_generating = true;
+                    self.is_taking_screenshot = true;
                     let tx = gui_event_tx.clone();
                     if let Some(task) = self.active_ocr_task.take() {
                         tracing::info!("GUI: Предыдущая OCR задача отменена.");
@@ -506,8 +556,8 @@ impl HudState {
             let asr_btn = ui
                 .add(
                     egui::Button::new(
-                        RichText::new("\u{1F3A4}")
-                            .size(16.0)
+                        RichText::new("Голос")
+                            .size(12.0)
                             .color(theme::TEXT_SECONDARY),
                     )
                     .fill(mic_bg)
@@ -521,6 +571,9 @@ impl HudState {
                     let client = client.clone();
                     let was_listening = self.is_listening;
                     self.is_listening = !was_listening;
+                    if was_listening {
+                        self.is_transcribing = true;
+                    }
                     if let Some(task) = self.active_asr_task.take() {
                         task.abort();
                     }
@@ -544,15 +597,15 @@ impl HudState {
 
             // Кнопка отправки или остановки печати в зависимости от состояния генерации
             let (btn_text, btn_color, is_stop) = if self.is_generating {
-                ("■", theme::RED_SOFT, true)
+                ("Стоп", theme::RED_SOFT, true)
             } else {
-                ("▶", theme::ACCENT, false)
+                ("Отправить", theme::ACCENT, false)
             };
 
             let action_btn = ui.add(
                 egui::Button::new(
                     RichText::new(btn_text)
-                        .size(14.0)
+                        .size(12.0)
                         .color(theme::TEXT_PRIMARY),
                 )
                 .fill(btn_color)
@@ -570,6 +623,8 @@ impl HudState {
             if is_stop {
                 if btn_clicked {
                     self.is_generating = false;
+                    self.is_taking_screenshot = false;
+                    self.is_transcribing = false;
                     if let Some(task) = self.active_chat_task.take() {
                         task.abort();
                     }
@@ -652,10 +707,7 @@ impl HudState {
     }
 }
 
-fn load_texture_from_path(
-    ctx: &egui::Context,
-    path_str: &str,
-) -> Option<egui::TextureHandle> {
+fn load_texture_from_path(ctx: &egui::Context, path_str: &str) -> Option<egui::TextureHandle> {
     let path = std::path::Path::new(path_str);
     if let Ok(color_image) = load_image_from_path(path) {
         Some(ctx.load_texture(
@@ -673,10 +725,7 @@ fn load_image_from_path(path: &std::path::Path) -> Result<egui::ColorImage, imag
     let size = [image.width() as usize, image.height() as usize];
     let image_buffer = image.to_rgba8();
     let pixels = image_buffer.as_raw();
-    Ok(egui::ColorImage::from_rgba_unmultiplied(
-        size,
-        pixels,
-    ))
+    Ok(egui::ColorImage::from_rgba_unmultiplied(size, pixels))
 }
 
 /// Кнопка заголовка HUD (текстовая иконка)

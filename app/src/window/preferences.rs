@@ -73,25 +73,28 @@ impl PreferencesState {
             tokio::spawn(async move {
                 match client.list_profiles().await {
                     Ok(list) => {
-                        let _ = tx.send(GuiEvent::ProfilesLoaded(list));
+                        let _ = tx.send(GuiEvent::ProfilesLoaded(list)).await;
                     }
                     Err(e) => {
-                        let _ =
-                            tx.send(GuiEvent::Error(format!("Ошибка загрузки профилей: {}", e)));
+                        let _ = tx
+                            .send(GuiEvent::Error(format!("Ошибка загрузки профилей: {}", e)))
+                            .await;
                     }
                 }
 
                 match client.get_active_profile().await {
                     Ok(active) => {
                         if !active.id.is_empty() {
-                            let _ = tx.send(GuiEvent::ActiveProfileLoaded(active));
+                            let _ = tx.send(GuiEvent::ActiveProfileLoaded(active)).await;
                         }
                     }
                     Err(e) => {
-                        let _ = tx.send(GuiEvent::Error(format!(
-                            "Ошибка получения активного профиля: {}",
-                            e
-                        )));
+                        let _ = tx
+                            .send(GuiEvent::Error(format!(
+                                "Ошибка получения активного профиля: {}",
+                                e
+                            )))
+                            .await;
                     }
                 }
             });
@@ -191,13 +194,19 @@ impl PreferencesState {
                             .await
                             .unwrap_or(None);
 
-                        let _ = tx.send(GuiEvent::ProfileDetailsLoaded(profile, llm_key, asr_key, vision_key));
+                        let _ = tx
+                            .send(GuiEvent::ProfileDetailsLoaded(
+                                profile, llm_key, asr_key, vision_key,
+                            ))
+                            .await;
                     }
                     Err(e) => {
-                        let _ = tx.send(GuiEvent::Error(format!(
-                            "Ошибка загрузки профиля '{}': {}",
-                            id, e
-                        )));
+                        let _ = tx
+                            .send(GuiEvent::Error(format!(
+                                "Ошибка загрузки профиля '{}': {}",
+                                id, e
+                            )))
+                            .await;
                     }
                 }
             });
@@ -322,13 +331,15 @@ impl PreferencesState {
                         tokio::spawn(async move {
                             match client.stop_rvms().await {
                                 Ok(_) => {
-                                    let _ = tx.send(GuiEvent::RvmsStopped);
+                                    let _ = tx.send(GuiEvent::RvmsStopped).await;
                                 }
                                 Err(e) => {
-                                    let _ = tx.send(GuiEvent::Error(format!(
-                                        "Ошибка остановки RVMS: {}",
-                                        e
-                                    )));
+                                    let _ = tx
+                                        .send(GuiEvent::Error(format!(
+                                            "Ошибка остановки RVMS: {}",
+                                            e
+                                        )))
+                                        .await;
                                 }
                             }
                         });
@@ -342,11 +353,12 @@ impl PreferencesState {
                     tokio::spawn(async move {
                         match client.start_rvms().await {
                             Ok(node_id) => {
-                                let _ = tx.send(GuiEvent::RvmsStarted(node_id));
+                                let _ = tx.send(GuiEvent::RvmsStarted(node_id)).await;
                             }
                             Err(e) => {
-                                let _ =
-                                    tx.send(GuiEvent::Error(format!("Ошибка запуска RVMS: {}", e)));
+                                let _ = tx
+                                    .send(GuiEvent::Error(format!("Ошибка запуска RVMS: {}", e)))
+                                    .await;
                             }
                         }
                     });
@@ -716,14 +728,14 @@ impl PreferencesState {
                             match client.set_active_profile(&profile_id).await {
                                 Ok(_) => {
                                     if let Ok(active) = client.get_active_profile().await {
-                                        let _ = tx.send(GuiEvent::ActiveProfileLoaded(active));
+                                        let _ = tx.send(GuiEvent::ActiveProfileLoaded(active)).await;
                                     }
                                 }
                                 Err(e) => {
                                     let _ = tx.send(GuiEvent::Error(format!(
                                         "Ошибка активации профиля: {}",
                                         e
-                                    )));
+                                    ))).await;
                                 }
                             }
                         });
@@ -752,13 +764,13 @@ impl PreferencesState {
 
                                 match client.delete_profile(&profile_id).await {
                                     Ok(_) => {
-                                        let _ = tx.send(GuiEvent::ProfileDeleted(profile_id));
+                                        let _ = tx.send(GuiEvent::ProfileDeleted(profile_id)).await;
                                     }
                                     Err(e) => {
                                         let _ = tx.send(GuiEvent::Error(format!(
                                             "Ошибка удаления профиля: {}",
                                             e
-                                        )));
+                                        ))).await;
                                     }
                                 }
                             });
@@ -812,23 +824,29 @@ impl PreferencesState {
                 }
 
                 if !vision_key.is_empty() {
-                    if let Err(e) = KeyringStore::set_password(&vision_key_name, &vision_key).await {
+                    if let Err(e) = KeyringStore::set_password(&vision_key_name, &vision_key).await
+                    {
                         tracing::error!("Failed to save password for {}: {:?}", vision_key_name, e);
                     }
                 } else {
                     if let Err(e) = KeyringStore::delete_password(&vision_key_name).await {
-                        tracing::warn!("Failed to delete password for {}: {:?}", vision_key_name, e);
+                        tracing::warn!(
+                            "Failed to delete password for {}: {:?}",
+                            vision_key_name,
+                            e
+                        );
                     }
                 }
 
                 // 2. Отправляем профиль демону для сохранения
                 match client.save_profile(&profile_to_save).await {
                     Ok(saved) => {
-                        let _ = event_tx.send(GuiEvent::ProfileSaved(saved));
+                        let _ = event_tx.send(GuiEvent::ProfileSaved(saved)).await;
                     }
                     Err(e) => {
                         let _ = event_tx
-                            .send(GuiEvent::Error(format!("Ошибка сохранения профиля: {}", e)));
+                            .send(GuiEvent::Error(format!("Ошибка сохранения профиля: {}", e)))
+                            .await;
                     }
                 }
             });
