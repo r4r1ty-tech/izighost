@@ -190,8 +190,14 @@ impl DaemonInterface {
     }
 
     async fn start_listening(&self) -> zbus::fdo::Result<()> {
+        static FILE_COUNTER: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let count = FILE_COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let pid = std::process::id();
         let timestamp = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0);
-        let temp_path = std::env::temp_dir().join(format!("izighost_recording_{}.wav", timestamp));
+        let temp_path = std::env::temp_dir().join(format!(
+            "izighost_recording_{}_{}_{}.wav",
+            timestamp, pid, count
+        ));
 
         tracing::info!("Запуск записи звука в {:?}", temp_path);
 

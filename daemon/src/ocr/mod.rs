@@ -15,8 +15,14 @@ impl Drop for DeleteOnDrop {
 /// Захват скриншота с виртуального монитора через GStreamer и pipewiresrc.
 /// Сохраняет временный PNG файл и возвращает путь к нему.
 pub fn capture_screenshot(node_id: u32) -> Result<PathBuf, anyhow::Error> {
+    static FILE_COUNTER: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    let count = FILE_COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    let pid = std::process::id();
     let timestamp = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0);
-    let temp_path = std::env::temp_dir().join(format!("izighost_ocr_raw_{}.png", timestamp));
+    let temp_path = std::env::temp_dir().join(format!(
+        "izighost_ocr_raw_{}_{}_{}.png",
+        timestamp, pid, count
+    ));
 
     tracing::info!(
         "Запуск захвата кадра с PipeWire ID {} в {:?}",
