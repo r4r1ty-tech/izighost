@@ -6,4 +6,4 @@ pub mod profile;
 pub use dbus::{DBUS_INTERFACE_NAME, DBUS_OBJECT_PATH, DBUS_SERVICE_NAME};
 pub use error::{IziError, Result};
 pub use keyring::KeyringStore;
-pub use profile::{AsrConfig, LlmConfig, Profile};
+pub use profile::{AsrConfig, LlmConfig, Profile, VisionConfig};
