@@ -40,40 +40,71 @@ fn install_extension_files() {
         && !needs_write(&extension_path, extension_content)
     {
         // Файлы актуальны — просто пытаемся включить
-        let _ = std::process::Command::new("gnome-extensions")
+        match std::process::Command::new("gnome-extensions")
             .arg("enable")
             .arg("window-pin-bridge@gnome.extension")
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
-            .status();
+            .status()
+        {
+            Ok(status) if !status.success() => {
+                tracing::warn!("gnome-extensions enable failed with status: {:?}", status);
+            }
+            Err(e) => {
+                tracing::warn!("Failed to execute gnome-extensions enable: {:?}", e);
+            }
+            _ => {}
+        }
         return;
     }
 
     // Создаём ZIP во временной директории и устанавливаем через gnome-extensions install
     let tmp_dir = std::path::PathBuf::from(&home).join(".cache/izighost-ext-tmp");
-    let _ = std::fs::create_dir_all(&tmp_dir);
+    if let Err(e) = std::fs::create_dir_all(&tmp_dir) {
+        tracing::error!("Failed to create directory {:?}: {:?}", tmp_dir, e);
+    }
     let zip_path = tmp_dir.join("window-pin-bridge.zip");
 
     // Создаём минимальный ZIP-файл вручную (без внешних зависимостей)
     if let Ok(()) = create_extension_zip(&zip_path, metadata_content, extension_content) {
-        let _ = std::process::Command::new("gnome-extensions")
+        match std::process::Command::new("gnome-extensions")
             .arg("install")
             .arg("--force")
             .arg(&zip_path)
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
-            .status();
+            .status()
+        {
+            Ok(status) if !status.success() => {
+                tracing::warn!("gnome-extensions install failed with status: {:?}", status);
+            }
+            Err(e) => {
+                tracing::warn!("Failed to execute gnome-extensions install: {:?}", e);
+            }
+            _ => {}
+        }
 
-        let _ = std::process::Command::new("gnome-extensions")
+        match std::process::Command::new("gnome-extensions")
             .arg("enable")
             .arg("window-pin-bridge@gnome.extension")
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
-            .status();
+            .status()
+        {
+            Ok(status) if !status.success() => {
+                tracing::warn!("gnome-extensions enable failed with status: {:?}", status);
+            }
+            Err(e) => {
+                tracing::warn!("Failed to execute gnome-extensions enable: {:?}", e);
+            }
+            _ => {}
+        }
     }
 
     // Убираем временные файлы
-    let _ = std::fs::remove_dir_all(&tmp_dir);
+    if let Err(e) = std::fs::remove_dir_all(&tmp_dir) {
+        tracing::warn!("Failed to remove directory {:?}: {:?}", tmp_dir, e);
+    }
 }
 
 /// Создание ZIP-архива с двумя файлами расширения.
@@ -82,18 +113,24 @@ fn create_extension_zip(
     zip_path: &std::path::Path,
     metadata: &str,
     extension_js: &str,
-) -> Result<(), std::io::Error> {
+ ) -> Result<(), std::io::Error> {
     let tmp_dir = zip_path
         .parent()
         .ok_or_else(|| std::io::Error::other("no parent"))?
         .join("ext_files");
-    let _ = std::fs::create_dir_all(&tmp_dir);
+    if let Err(e) = std::fs::create_dir_all(&tmp_dir) {
+        tracing::error!("Failed to create temporary directory {:?}: {:?}", tmp_dir, e);
+    }
 
     std::fs::write(tmp_dir.join("metadata.json"), metadata)?;
     std::fs::write(tmp_dir.join("extension.js"), extension_js)?;
 
     // Удаляем старый zip если есть
-    let _ = std::fs::remove_file(zip_path);
+    if let Err(e) = std::fs::remove_file(zip_path) {
+        if e.kind() != std::io::ErrorKind::NotFound {
+            tracing::warn!("Failed to remove old zip file {:?}: {:?}", zip_path, e);
+        }
+    }
 
     let status = std::process::Command::new("zip")
         .arg("-j") // junk directory paths
@@ -104,7 +141,9 @@ fn create_extension_zip(
         .stderr(std::process::Stdio::null())
         .status()?;
 
-    let _ = std::fs::remove_dir_all(&tmp_dir);
+    if let Err(e) = std::fs::remove_dir_all(&tmp_dir) {
+        tracing::warn!("Failed to remove temporary directory {:?}: {:?}", tmp_dir, e);
+    }
 
     if status.success() {
         Ok(())
@@ -183,6 +222,9 @@ fn apply_dark_theme(ctx: &egui::Context) {
 }
 
 fn main() -> Result<(), eframe::Error> {
+    // Инициализируем логирование
+    tracing_subscriber::fmt::init();
+
     // Устанавливаем файлы расширения (без крашей при ошибках)
     install_extension_files();
 

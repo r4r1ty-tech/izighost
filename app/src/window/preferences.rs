@@ -736,9 +736,15 @@ impl PreferencesState {
                                 let llm_key_name = format!("llm_api_key_{}", profile_id);
                                 let asr_key_name = format!("asr_api_key_{}", profile_id);
                                 let vision_key_name = format!("vision_api_key_{}", profile_id);
-                                let _ = KeyringStore::delete_password(&llm_key_name).await;
-                                let _ = KeyringStore::delete_password(&asr_key_name).await;
-                                let _ = KeyringStore::delete_password(&vision_key_name).await;
+                                if let Err(e) = KeyringStore::delete_password(&llm_key_name).await {
+                                    tracing::warn!("Failed to delete password for {}: {:?}", llm_key_name, e);
+                                }
+                                if let Err(e) = KeyringStore::delete_password(&asr_key_name).await {
+                                    tracing::warn!("Failed to delete password for {}: {:?}", asr_key_name, e);
+                                }
+                                if let Err(e) = KeyringStore::delete_password(&vision_key_name).await {
+                                    tracing::warn!("Failed to delete password for {}: {:?}", vision_key_name, e);
+                                }
 
                                 match client.delete_profile(&profile_id).await {
                                     Ok(_) => {
@@ -782,21 +788,33 @@ impl PreferencesState {
                 let vision_key_name = format!("vision_api_key_{}", profile_to_save.id);
 
                 if !llm_key.is_empty() {
-                    let _ = KeyringStore::set_password(&llm_key_name, &llm_key).await;
+                    if let Err(e) = KeyringStore::set_password(&llm_key_name, &llm_key).await {
+                        tracing::error!("Failed to save password for {}: {:?}", llm_key_name, e);
+                    }
                 } else {
-                    let _ = KeyringStore::delete_password(&llm_key_name).await;
+                    if let Err(e) = KeyringStore::delete_password(&llm_key_name).await {
+                        tracing::warn!("Failed to delete password for {}: {:?}", llm_key_name, e);
+                    }
                 }
 
                 if !asr_key.is_empty() {
-                    let _ = KeyringStore::set_password(&asr_key_name, &asr_key).await;
+                    if let Err(e) = KeyringStore::set_password(&asr_key_name, &asr_key).await {
+                        tracing::error!("Failed to save password for {}: {:?}", asr_key_name, e);
+                    }
                 } else {
-                    let _ = KeyringStore::delete_password(&asr_key_name).await;
+                    if let Err(e) = KeyringStore::delete_password(&asr_key_name).await {
+                        tracing::warn!("Failed to delete password for {}: {:?}", asr_key_name, e);
+                    }
                 }
 
                 if !vision_key.is_empty() {
-                    let _ = KeyringStore::set_password(&vision_key_name, &vision_key).await;
+                    if let Err(e) = KeyringStore::set_password(&vision_key_name, &vision_key).await {
+                        tracing::error!("Failed to save password for {}: {:?}", vision_key_name, e);
+                    }
                 } else {
-                    let _ = KeyringStore::delete_password(&vision_key_name).await;
+                    if let Err(e) = KeyringStore::delete_password(&vision_key_name).await {
+                        tracing::warn!("Failed to delete password for {}: {:?}", vision_key_name, e);
+                    }
                 }
 
                 // 2. Отправляем профиль демону для сохранения

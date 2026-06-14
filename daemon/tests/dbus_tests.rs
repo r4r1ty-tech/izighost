@@ -75,7 +75,7 @@ async fn test_dbus_stubs() {
 
     // Проверяем профили (получим пустой список, так как папка пуста)
     let profiles = proxy.list_profiles().await.expect("list_profiles failed");
-    assert!(profiles.is_empty() || !profiles.is_empty()); // Просто проверяем успешность вызова
+    assert!(profiles.is_empty());
 
     // Получаем пустой активный профиль
     let active = proxy
@@ -88,9 +88,9 @@ async fn test_dbus_stubs() {
     let ocr_res = proxy.trigger_ocr().await;
     assert!(ocr_res.is_err());
 
-    // Проверяем trigger_ocr_from_file (вызов должен пройти успешно)
+    // Проверяем trigger_ocr_from_file (вызов должен завершиться с ошибкой, так как файл отсутствует)
     let ocr_file_res = proxy
         .trigger_ocr_from_file("/tmp/nonexistent_file.png")
         .await;
-    assert!(ocr_file_res.is_ok());
+    assert!(ocr_file_res.is_err());
 }

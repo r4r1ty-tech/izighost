@@ -47,12 +47,18 @@ impl DaemonInterface {
                         unsafe {
                             libc::kill(pid as libc::pid_t, libc::SIGINT);
                         }
-                        let _ = child.wait().await;
+                        if let Err(e) = child.wait().await {
+                            tracing::error!("Ошибка при ожидании завершения процесса записи звука: {:?}", e);
+                        }
                     }
                     _ => {}
                 }
             }
-            let _ = tokio::fs::remove_file(&path).await;
+            if let Err(e) = tokio::fs::remove_file(&path).await {
+                if e.kind() != std::io::ErrorKind::NotFound {
+                    tracing::warn!("Не удалось удалить временный аудиофайл {:?}: {:?}", path, e);
+                }
+            }
         }
     }
 }
@@ -121,12 +127,16 @@ impl DaemonInterface {
                     match chunk_res {
                         Ok(chunk) => {
                             full_response.push_str(&chunk);
-                            let _ = Self::chat_chunk(&emitter, &chunk).await;
+                            if let Err(err) = Self::chat_chunk(&emitter, &chunk).await {
+                                tracing::error!("Ошибка отправки D-Bus сигнала chat_chunk: {:?}", err);
+                            }
                         }
                         Err(e) => {
                             let err_msg = format!("Ошибка во время стриминга LLM: {}", e);
                             tracing::error!("{}", err_msg);
-                            let _ = Self::error_occurred(&emitter, &err_msg).await;
+                            if let Err(err) = Self::error_occurred(&emitter, &err_msg).await {
+                                tracing::error!("Ошибка отправки D-Bus сигнала error_occurred: {:?}", err);
+                            }
                             return Err(zbus::fdo::Error::Failed(err_msg));
                         }
                     }
@@ -135,7 +145,9 @@ impl DaemonInterface {
             Err(e) => {
                 let err_msg = format!("Не удалось выполнить LLM запрос: {}", e);
                 tracing::error!("{}", err_msg);
-                let _ = Self::error_occurred(&emitter, &err_msg).await;
+                if let Err(err) = Self::error_occurred(&emitter, &err_msg).await {
+                    tracing::error!("Ошибка отправки D-Bus сигнала error_occurred: {:?}", err);
+                }
                 return Err(zbus::fdo::Error::Failed(err_msg));
             }
         }
@@ -165,37 +177,31 @@ impl DaemonInterface {
             None => {
                 let err_msg =
                     "Виртуальный экран не активен. Сначала запустите RVMS сессию в настройках.";
-                let _ = Self::error_occurred(&emitter, err_msg).await;
+                if let Err(err) = Self::error_occurred(&emitter, err_msg).await {
+                    tracing::error!("Ошибка отправки D-Bus сигнала error_occurred: {:?}", err);
+                }
                 return Err(zbus::fdo::Error::Failed(err_msg.to_string()));
             }
         };
 
-        // Запускаем OCR пайплайн в фоновом Tokio-потоке
-        let emitter_clone = emitter.clone().into_owned();
-        let context_store = self.context_store.clone();
         let profile = self.context_store.get_active_profile().await;
-        tokio::spawn(async move {
-            match crate::ocr::trigger_ocr_pipeline(node_id, profile).await {
-                Ok(text) => {
-                    context_store.set_last_preview(Some(text.clone())).await;
-                    if let Err(e) = Self::ocr_completed(&emitter_clone, &text).await {
-                        tracing::error!("Ошибка отправки D-Bus сигнала ocr_completed: {:?}", e);
-                    }
+        match crate::ocr::trigger_ocr_pipeline(node_id, profile).await {
+            Ok(text) => {
+                self.context_store.set_last_preview(Some(text.clone())).await;
+                if let Err(e) = Self::ocr_completed(&emitter, &text).await {
+                    tracing::error!("Ошибка отправки D-Bus сигнала ocr_completed: {:?}", e);
                 }
-                Err(e) => {
-                    let err_msg = format!("Ошибка распознавания текста (OCR): {}", e);
-                    tracing::error!("{}", err_msg);
-                    if let Err(sig_err) = Self::error_occurred(&emitter_clone, &err_msg).await {
-                        tracing::error!(
-                            "Ошибка отправки D-Bus сигнала error_occurred: {:?}",
-                            sig_err
-                        );
-                    }
-                }
+                Ok(())
             }
-        });
-
-        Ok(())
+            Err(e) => {
+                let err_msg = format!("Ошибка распознавания текста (OCR): {}", e);
+                tracing::error!("{}", err_msg);
+                if let Err(err) = Self::error_occurred(&emitter, &err_msg).await {
+                    tracing::error!("Ошибка отправки D-Bus сигнала error_occurred: {:?}", err);
+                }
+                Err(zbus::fdo::Error::Failed(err_msg))
+            }
+        }
     }
 
     async fn trigger_ocr_from_file(
@@ -203,33 +209,33 @@ impl DaemonInterface {
         file_path: String,
         #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
     ) -> zbus::fdo::Result<()> {
-        let emitter_clone = emitter.clone().into_owned();
-        let context_store = self.context_store.clone();
         let path = std::path::PathBuf::from(file_path);
-        let profile = self.context_store.get_active_profile().await;
-
-        tokio::spawn(async move {
-            match crate::ocr::run_ocr_on_file(path, profile).await {
-                Ok(text) => {
-                    context_store.set_last_preview(Some(text.clone())).await;
-                    if let Err(e) = Self::ocr_completed(&emitter_clone, &text).await {
-                        tracing::error!("Ошибка отправки D-Bus сигнала ocr_completed: {:?}", e);
-                    }
-                }
-                Err(e) => {
-                    let err_msg = format!("Ошибка распознавания текста (OCR): {}", e);
-                    tracing::error!("{}", err_msg);
-                    if let Err(sig_err) = Self::error_occurred(&emitter_clone, &err_msg).await {
-                        tracing::error!(
-                            "Ошибка отправки D-Bus сигнала error_occurred: {:?}",
-                            sig_err
-                        );
-                    }
-                }
+        if !path.exists() {
+            let err_msg = "Указанный файл не существует".to_string();
+            if let Err(err) = Self::error_occurred(&emitter, &err_msg).await {
+                tracing::error!("Ошибка отправки D-Bus сигнала error_occurred: {:?}", err);
             }
-        });
+            return Err(zbus::fdo::Error::Failed(err_msg));
+        }
 
-        Ok(())
+        let profile = self.context_store.get_active_profile().await;
+        match crate::ocr::run_ocr_on_file(path, profile).await {
+            Ok(text) => {
+                self.context_store.set_last_preview(Some(text.clone())).await;
+                if let Err(e) = Self::ocr_completed(&emitter, &text).await {
+                    tracing::error!("Ошибка отправки D-Bus сигнала ocr_completed: {:?}", e);
+                }
+                Ok(())
+            }
+            Err(e) => {
+                let err_msg = format!("Ошибка распознавания текста (OCR): {}", e);
+                tracing::error!("{}", err_msg);
+                if let Err(err) = Self::error_occurred(&emitter, &err_msg).await {
+                    tracing::error!("Ошибка отправки D-Bus сигнала error_occurred: {:?}", err);
+                }
+                Err(zbus::fdo::Error::Failed(err_msg))
+            }
+        }
     }
 
     async fn start_listening(&self) -> zbus::fdo::Result<()> {
@@ -249,9 +255,17 @@ impl DaemonInterface {
             let mut state = self.recording_state.lock().await;
             if let Some((mut child, path)) = state.take() {
                 tracing::warn!("Остановка зависшей записи: {:?}", path);
-                let _ = child.kill().await;
-                let _ = child.wait().await;
-                let _ = tokio::fs::remove_file(&path).await;
+                if let Err(e) = child.kill().await {
+                    tracing::warn!("Не удалось убить зависший процесс записи звука: {:?}", e);
+                }
+                if let Err(e) = child.wait().await {
+                    tracing::warn!("Ошибка при ожидании зависшего процесса записи звука: {:?}", e);
+                }
+                if let Err(e) = tokio::fs::remove_file(&path).await {
+                    if e.kind() != std::io::ErrorKind::NotFound {
+                        tracing::warn!("Не удалось удалить временный аудиофайл {:?}: {:?}", path, e);
+                    }
+                }
             }
         }
 
@@ -317,7 +331,9 @@ impl DaemonInterface {
         }
 
         // Ожидаем завершения процесса асинхронно
-        let _ = child.wait().await;
+        if let Err(e) = child.wait().await {
+            tracing::error!("Ошибка при ожидании завершения процесса записи звука в stop_listening: {:?}", e);
+        }
 
         // Загружаем профиль и API-ключ для распознавания
         let profile = self.context_store.get_active_profile().await;
@@ -344,7 +360,11 @@ impl DaemonInterface {
             let path_clone = path.clone();
             let result = crate::audio::transcribe_audio(&path_clone, profile.as_ref(), &api_key).await;
             
-            let _ = tokio::fs::remove_file(&path).await; // Очищаем временный аудиофайл в любом случае
+            if let Err(e) = tokio::fs::remove_file(&path).await {
+                if e.kind() != std::io::ErrorKind::NotFound {
+                    tracing::warn!("Не удалось удалить временный аудиофайл {:?}: {:?}", path, e);
+                }
+            }
 
             match result {
                 Ok(text) => {
