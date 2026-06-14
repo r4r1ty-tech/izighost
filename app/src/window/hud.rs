@@ -77,6 +77,7 @@ impl HudState {
                                     let path_str = temp_path.to_string_lossy().to_string();
                                     if let Err(e) = client.trigger_ocr_from_file(&path_str).await {
                                         eprintln!("Ошибка вызова trigger_ocr_from_file: {:?}", e);
+                                        let _ = std::fs::remove_file(&temp_path);
                                     }
                                 }
                                 Err(e) => {
@@ -104,6 +105,7 @@ impl HudState {
                                     let path_str = temp_path.to_string_lossy().to_string();
                                     if let Err(e) = client.trigger_ocr_from_file(&path_str).await {
                                         eprintln!("Ошибка вызова trigger_ocr_from_file: {:?}", e);
+                                        let _ = std::fs::remove_file(&temp_path);
                                     }
                                 }
                                 Err(e) => {
