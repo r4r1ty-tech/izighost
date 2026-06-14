@@ -1,8 +1,8 @@
+use aes::cipher::KeyIvInit;
 use izighost_common::Profile;
 use std::sync::Arc;
-use tokio::sync::RwLock;
 use tokio::io::AsyncWriteExt;
-use aes::cipher::KeyIvInit;
+use tokio::sync::RwLock;
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct ChatMessage {
@@ -59,7 +59,7 @@ impl ContextStore {
 
     pub async fn add_message(&self, role: String, content: String) {
         let mut inner = self.inner.write().await;
-        
+
         let max_messages = inner
             .active_profile
             .as_ref()
@@ -176,7 +176,11 @@ impl ContextStore {
         let mut file = match file_opts.open(&file_path).await {
             Ok(f) => f,
             Err(e) => {
-                tracing::error!("Failed to open/create history file {:?}: {:?}", file_path, e);
+                tracing::error!(
+                    "Failed to open/create history file {:?}: {:?}",
+                    file_path,
+                    e
+                );
                 return;
             }
         };
@@ -186,7 +190,8 @@ impl ContextStore {
     }
 
     async fn load_history_from_disk(data_dir: &str, profile_id: &str) -> Vec<ChatMessage> {
-        let file_path = crate::config::resolve_path(data_dir).join(format!("history_{}.json", profile_id));
+        let file_path =
+            crate::config::resolve_path(data_dir).join(format!("history_{}.json", profile_id));
         if !file_path.exists() {
             return Vec::new();
         }
@@ -226,7 +231,11 @@ impl ContextStore {
             match serde_json::from_slice(&content_bytes) {
                 Ok(history) => history,
                 Err(e) => {
-                    tracing::error!("Failed to parse legacy history file {:?}: {:?}", file_path, e);
+                    tracing::error!(
+                        "Failed to parse legacy history file {:?}: {:?}",
+                        file_path,
+                        e
+                    );
                     Vec::new()
                 }
             }
@@ -238,12 +247,12 @@ const ENCRYPTED_MAGIC: &[u8] = b"IZIGH_ENC_V1";
 
 fn decode_hex(s: &str) -> Option<Vec<u8>> {
     let s = s.trim();
-    if s.len() % 2 != 0 {
+    if !s.len().is_multiple_of(2) {
         return None;
     }
     let mut bytes = Vec::new();
     for i in (0..s.len()).step_by(2) {
-        let res = u8::from_str_radix(&s[i..i+2], 16).ok()?;
+        let res = u8::from_str_radix(&s[i..i + 2], 16).ok()?;
         bytes.push(res);
     }
     Some(bytes)
@@ -271,15 +280,12 @@ fn decrypt_aes256_cbc(key: &[u8], iv: &[u8], ciphertext: &[u8]) -> Option<Vec<u8
 
 async fn get_or_create_history_key(profile_id: &str) -> Option<Vec<u8>> {
     let key_name = format!("history_key_{}", profile_id);
-    match izighost_common::KeyringStore::get_password(&key_name).await {
-        Ok(Some(hex_key)) => {
-            if let Some(key) = decode_hex(&hex_key) {
-                if key.len() == 32 {
-                    return Some(key);
-                }
+    if let Ok(Some(hex_key)) = izighost_common::KeyringStore::get_password(&key_name).await {
+        if let Some(key) = decode_hex(&hex_key) {
+            if key.len() == 32 {
+                return Some(key);
             }
         }
-        _ => {}
     }
 
     // Generate a new 32-byte key
@@ -297,10 +303,15 @@ async fn get_or_create_history_key(profile_id: &str) -> Option<Vec<u8>> {
     }
 
     let hex_key = encode_hex(&key);
-    if izighost_common::KeyringStore::set_password(&key_name, &hex_key).await.is_ok() {
+    if izighost_common::KeyringStore::set_password(&key_name, &hex_key)
+        .await
+        .is_ok()
+    {
         Some(key)
     } else {
-        tracing::warn!("Failed to store history key in keyring. Storing history without encryption.");
+        tracing::warn!(
+            "Failed to store history key in keyring. Storing history without encryption."
+        );
         None
     }
 }
@@ -311,7 +322,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_history_encryption_roundtrip() {
-        let temp_dir = std::env::temp_dir().join(format!("izighost_test_{}", chrono::Utc::now().timestamp_millis()));
+        let temp_dir = std::env::temp_dir().join(format!(
+            "izighost_test_{}",
+            chrono::Utc::now().timestamp_millis()
+        ));
         let data_dir = temp_dir.to_str().unwrap();
 
         let history = vec![

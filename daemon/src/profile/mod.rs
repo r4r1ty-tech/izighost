@@ -27,8 +27,9 @@ impl ProfileManager {
         }
 
         let mut ids = Vec::new();
-        let entries = fs::read_dir(&self.profiles_dir)
-            .map_err(|e| IziError::Profile(format!("Не удалось прочитать директорию профилей: {}", e)))?;
+        let entries = fs::read_dir(&self.profiles_dir).map_err(|e| {
+            IziError::Profile(format!("Не удалось прочитать директорию профилей: {}", e))
+        })?;
 
         for entry in entries.flatten() {
             let path = entry.path();
@@ -80,7 +81,10 @@ impl ProfileManager {
                 match parser::parse_file(&profile.cv_path).await {
                     Ok(text) => profile.cv_text = text,
                     Err(e) => {
-                        return Err(IziError::Profile(format!("Ошибка парсинга резюме (CV): {}", e)));
+                        return Err(IziError::Profile(format!(
+                            "Ошибка парсинга резюме (CV): {}",
+                            e
+                        )));
                     }
                 }
             }
@@ -98,7 +102,10 @@ impl ProfileManager {
                 match parser::parse_file(&profile.vacancy_path).await {
                     Ok(text) => profile.vacancy_text = text,
                     Err(e) => {
-                        return Err(IziError::Profile(format!("Ошибка парсинга вакансии: {}", e)));
+                        return Err(IziError::Profile(format!(
+                            "Ошибка парсинга вакансии: {}",
+                            e
+                        )));
                     }
                 }
             }
@@ -118,8 +125,9 @@ impl ProfileManager {
     pub fn delete_profile(&self, id: &str) -> Result<(), IziError> {
         let file_path = self.profiles_dir.join(format!("{}.yaml", id));
         if file_path.exists() {
-            fs::remove_file(&file_path)
-                .map_err(|e| IziError::Profile(format!("Не удалось удалить файл профиля: {}", e)))?;
+            fs::remove_file(&file_path).map_err(|e| {
+                IziError::Profile(format!("Не удалось удалить файл профиля: {}", e))
+            })?;
         }
         Ok(())
     }
