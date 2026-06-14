@@ -15,6 +15,7 @@ trait Daemon {
     async fn stop_rvms(&self) -> zbus::Result<()>;
     async fn send_chat_message(&self, text: &str) -> zbus::Result<()>;
     async fn trigger_ocr(&self) -> zbus::Result<()>;
+    async fn trigger_ocr_from_file(&self, file_path: &str) -> zbus::Result<()>;
     async fn start_listening(&self) -> zbus::Result<()>;
     async fn stop_listening(&self) -> zbus::Result<()>;
     async fn list_profiles(&self) -> zbus::Result<Vec<String>>;
@@ -85,4 +86,10 @@ async fn test_dbus_stubs() {
     // Проверяем, что trigger_ocr возвращает ошибку, так как RVMS сейчас остановлен
     let ocr_res = proxy.trigger_ocr().await;
     assert!(ocr_res.is_err());
+
+    // Проверяем trigger_ocr_from_file (вызов должен пройти успешно)
+    let ocr_file_res = proxy
+        .trigger_ocr_from_file("/tmp/nonexistent_file.png")
+        .await;
+    assert!(ocr_file_res.is_ok());
 }
