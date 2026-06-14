@@ -81,7 +81,6 @@ impl OnboardingState {
         ui: &mut egui::Ui,
         dbus_client: &Option<Arc<DaemonClient>>,
         event_tx: UnboundedSender<GuiEvent>,
-        on_finish: &mut dyn FnMut(),
     ) {
         ui.vertical_centered(|ui| {
             ui.add_space(10.0);
@@ -172,7 +171,7 @@ impl OnboardingState {
                             .min_size(Vec2::new(140.0, 32.0)),
                         );
                         if btn.clicked() {
-                            self.save_and_finish(dbus_client, event_tx, on_finish);
+                            self.save_and_finish(dbus_client, event_tx);
                         }
                     }
                     _ => {
@@ -357,11 +356,22 @@ impl OnboardingState {
         };
     }
 
+    pub fn handle_event(&mut self, event: &GuiEvent) {
+        match event {
+            GuiEvent::ActiveProfileLoaded(_) | GuiEvent::ProfileSaved(_) => {
+                self.is_saving = false;
+            }
+            GuiEvent::Error(_) => {
+                self.is_saving = false;
+            }
+            _ => {}
+        }
+    }
+
     fn save_and_finish(
         &mut self,
         dbus_client: &Option<Arc<DaemonClient>>,
         event_tx: UnboundedSender<GuiEvent>,
-        on_finish: &mut dyn FnMut(),
     ) {
         self.is_saving = true;
 
@@ -398,15 +408,19 @@ impl OnboardingState {
 
             // Отправляем демону команду сохранения профиля
             if let Some(client) = dbus_clone {
-                if let Ok(saved) = client.save_profile(&profile).await {
-                    let _ = client.set_active_profile(&id).await;
-                    let _ = event_tx.send(GuiEvent::ProfileSaved(saved.clone()));
-                    let _ = event_tx.send(GuiEvent::ActiveProfileLoaded(saved));
+                match client.save_profile(&profile).await {
+                    Ok(saved) => {
+                        let _ = client.set_active_profile(&id).await;
+                        let _ = event_tx.send(GuiEvent::ProfileSaved(saved.clone()));
+                        let _ = event_tx.send(GuiEvent::ActiveProfileLoaded(saved));
+                    }
+                    Err(e) => {
+                        let _ = event_tx.send(GuiEvent::Error(format!("Не удалось сохранить профиль: {}", e)));
+                    }
                 }
+            } else {
+                let _ = event_tx.send(GuiEvent::Error("Демон недоступен".to_string()));
             }
         });
-
-        // Переключаем флаг
-        on_finish();
     }
 }

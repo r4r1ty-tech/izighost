@@ -302,6 +302,8 @@ impl IziGhostApp {
     /// Опрос событий GUI из фоновых потоков
     fn handle_gui_events(&mut self) {
         while let Ok(event) = self.gui_event_rx.try_recv() {
+            self.onboarding_state.handle_event(&event);
+
             match event {
                 GuiEvent::ExtensionNotLoaded => {
                     self.hud_state.show_extension_warning = true;
@@ -310,6 +312,11 @@ impl IziGhostApp {
                     if list.is_empty() {
                         self.show_onboarding = true;
                     }
+                    self.preferences_state
+                        .handle_event(event.clone(), &self.dbus_client);
+                }
+                GuiEvent::ActiveProfileLoaded(_) => {
+                    self.show_onboarding = false;
                     self.preferences_state
                         .handle_event(event.clone(), &self.dbus_client);
                 }
@@ -333,17 +340,12 @@ impl eframe::App for IziGhostApp {
             .frame(egui::Frame::NONE.fill(if self.show_onboarding { window::theme::BG_PRIMARY } else { Color32::TRANSPARENT }))
             .show_inside(ui, |ui| {
                 if self.show_onboarding {
-                    let mut show_onb = self.show_onboarding;
                     let event_tx = self.gui_event_tx.clone();
                     self.onboarding_state.draw(
                         ui,
                         &self.dbus_client,
                         event_tx,
-                        &mut || {
-                            show_onb = false;
-                        }
                     );
-                    self.show_onboarding = show_onb;
                 } else {
                     self.hud_state
                         .draw(ui, &self.dbus_client, &self.preferences_state.active_id);
