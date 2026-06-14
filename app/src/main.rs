@@ -399,8 +399,10 @@ impl eframe::App for IziGhostApp {
                         show_preferences = false;
                     }
 
-                    // Применяем ту же тёмную тему к окну настроек
-                    apply_dark_theme(ctx);
+                    // Применяем ту же тёмную тему к окну настроек только при необходимости
+                    if ctx.style().visuals.panel_fill != window::theme::BG_PRIMARY {
+                        apply_dark_theme(ctx);
+                    }
 
                     #[allow(deprecated)]
                     egui::CentralPanel::default().show(ctx, |ui| {
