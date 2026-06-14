@@ -44,35 +44,47 @@ pub async fn capture_screenshot(node_id: u32) -> Result<PathBuf, anyhow::Error> 
     }
 
     match zbus::Connection::session().await {
-        Ok(conn) => {
-            match WindowPinBridgeProxy::new(&conn).await {
-                Ok(proxy) => {
-                    tracing::info!("[ОКР] Отправка D-Bus запроса CaptureVirtualMonitor для файла: {}", temp_path_str);
-                    match proxy.capture_virtual_monitor(&temp_path_str).await {
-                        Ok(true) => {
-                            tracing::info!("[ОКР] D-Bus запрос к CaptureVirtualMonitor успешно выполнен (вернул true).");
-                            ext_success = true;
-                        }
-                        Ok(false) => {
-                            tracing::warn!("[ОКР] Расширение GNOME вернуло false при вызове CaptureVirtualMonitor.");
-                        }
-                        Err(e) => {
-                            tracing::warn!("[ОКР] Ошибка при вызове CaptureVirtualMonitor через D-Bus: {:?}", e);
-                        }
+        Ok(conn) => match WindowPinBridgeProxy::new(&conn).await {
+            Ok(proxy) => {
+                tracing::info!(
+                    "[ОКР] Отправка D-Bus запроса CaptureVirtualMonitor для файла: {}",
+                    temp_path_str
+                );
+                match proxy.capture_virtual_monitor(&temp_path_str).await {
+                    Ok(true) => {
+                        tracing::info!("[ОКР] D-Bus запрос к CaptureVirtualMonitor успешно выполнен (вернул true).");
+                        ext_success = true;
+                    }
+                    Ok(false) => {
+                        tracing::warn!("[ОКР] Расширение GNOME вернуло false при вызове CaptureVirtualMonitor.");
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            "[ОКР] Ошибка при вызове CaptureVirtualMonitor через D-Bus: {:?}",
+                            e
+                        );
                     }
                 }
-                Err(e) => {
-                    tracing::warn!("[ОКР] Не удалось создать WindowPinBridge D-Bus прокси: {:?}", e);
-                }
             }
-        }
+            Err(e) => {
+                tracing::warn!(
+                    "[ОКР] Не удалось создать WindowPinBridge D-Bus прокси: {:?}",
+                    e
+                );
+            }
+        },
         Err(e) => {
-            tracing::warn!("[ОКР] Не удалось установить сессионное D-Bus соединение для захвата: {:?}", e);
+            tracing::warn!(
+                "[ОКР] Не удалось установить сессионное D-Bus соединение для захвата: {:?}",
+                e
+            );
         }
     }
 
     if ext_success {
-        tracing::info!("[ОКР] Начало ожидания записи файла скриншота расширением GNOME (макс. 2 секунды)...");
+        tracing::info!(
+            "[ОКР] Начало ожидания записи файла скриншота расширением GNOME (макс. 2 секунды)..."
+        );
         let mut file_ready = false;
         for i in 0..200 {
             if temp_path.exists() {
@@ -80,15 +92,26 @@ pub async fn capture_screenshot(node_id: u32) -> Result<PathBuf, anyhow::Error> 
                     Ok(metadata) => {
                         let size = metadata.len();
                         if size > 0 {
-                            tracing::info!("[ОКР] Файл скриншота обнаружен на итерации {} (размер: {} байт).", i, size);
+                            tracing::info!(
+                                "[ОКР] Файл скриншота обнаружен на итерации {} (размер: {} байт).",
+                                i,
+                                size
+                            );
                             file_ready = true;
                             break;
                         } else {
-                            tracing::debug!("[ОКР] Файл создан, но его размер все еще 0 байт (попытка {})...", i);
+                            tracing::debug!(
+                                "[ОКР] Файл создан, но его размер все еще 0 байт (попытка {})...",
+                                i
+                            );
                         }
                     }
                     Err(e) => {
-                        tracing::debug!("[ОКР] Не удалось получить метаданные файла на итерации {}: {:?}", i, e);
+                        tracing::debug!(
+                            "[ОКР] Не удалось получить метаданные файла на итерации {}: {:?}",
+                            i,
+                            e
+                        );
                     }
                 }
             }
@@ -122,7 +145,10 @@ pub async fn capture_screenshot(node_id: u32) -> Result<PathBuf, anyhow::Error> 
 
     if !output.status.success() {
         let stderr_msg = String::from_utf8_lossy(&output.stderr).to_string();
-        let err_msg = format!("GStreamer pipeline завершился с ошибкой: {}", stderr_msg.trim());
+        let err_msg = format!(
+            "GStreamer pipeline завершился с ошибкой: {}",
+            stderr_msg.trim()
+        );
         tracing::error!("[ОКР] {}", err_msg);
         return Err(anyhow::anyhow!(err_msg));
     }
@@ -146,13 +172,20 @@ pub fn preprocess_image(input_path: &Path) -> Result<PathBuf, anyhow::Error> {
 
     // Открываем исходное изображение
     let img = image::open(input_path).map_err(|e| {
-        tracing::error!("[ОКР:Предобработка] Не удалось открыть исходное изображение: {:?}", e);
+        tracing::error!(
+            "[ОКР:Предобработка] Не удалось открыть исходное изображение: {:?}",
+            e
+        );
         e
     })?;
 
     let width = img.width();
     let height = img.height();
-    tracing::info!("[ОКР:Предобработка] Изображение успешно загружено. Разрешение: {}x{}.", width, height);
+    tracing::info!(
+        "[ОКР:Предобработка] Изображение успешно загружено. Разрешение: {}x{}.",
+        width,
+        height
+    );
 
     tracing::info!("[ОКР:Предобработка] Конвертация в оттенки серого (Grayscale)...");
     let mut grayscale = img.into_luma8();
@@ -178,7 +211,10 @@ pub fn preprocess_image(input_path: &Path) -> Result<PathBuf, anyhow::Error> {
     // Сохраняем обработанное изображение
     tracing::info!("[ОКР:Предобработка] Сохранение предобработанного файла на диск...");
     grayscale.save(&output_path).map_err(|e| {
-        tracing::error!("[ОКР:Предобработка] Ошибка сохранения обработанного файла: {:?}", e);
+        tracing::error!(
+            "[ОКР:Предобработка] Ошибка сохранения обработанного файла: {:?}",
+            e
+        );
         e
     })?;
 
@@ -219,21 +255,18 @@ pub fn run_ocr(image_path: &Path, tessdata_dir: Option<PathBuf>) -> Result<Strin
     })?;
 
     tracing::info!("[ОКР:Тессеракт] Загрузка изображения в Tesseract...");
-    lt.set_image(image_path)
-        .map_err(|e| {
-            let err_msg = format!("Не удалось загрузить изображение в Tesseract: {:?}", e);
-            tracing::error!("[ОКР:Тессеракт] {}", err_msg);
-            anyhow::anyhow!(err_msg)
-        })?;
+    lt.set_image(image_path).map_err(|e| {
+        let err_msg = format!("Не удалось загрузить изображение в Tesseract: {:?}", e);
+        tracing::error!("[ОКР:Тессеракт] {}", err_msg);
+        anyhow::anyhow!(err_msg)
+    })?;
 
     tracing::info!("[ОКР:Тессеракт] Извлечение текста (OCR)...");
-    let text = lt
-        .get_utf8_text()
-        .map_err(|e| {
-            let err_msg = format!("Ошибка извлечения текста в Tesseract: {:?}", e);
-            tracing::error!("[ОКР:Тессеракт] {}", err_msg);
-            anyhow::anyhow!(err_msg)
-        })?;
+    let text = lt.get_utf8_text().map_err(|e| {
+        let err_msg = format!("Ошибка извлечения текста в Tesseract: {:?}", e);
+        tracing::error!("[ОКР:Тессеракт] {}", err_msg);
+        anyhow::anyhow!(err_msg)
+    })?;
 
     tracing::info!(
         "[ОКР:Тессеракт] Tesseract OCR успешно выполнен. Извлечено {} символов.",
@@ -378,7 +411,9 @@ pub async fn run_ocr_on_file(
 
     let ocr_result = if !api_key.is_empty() {
         if let Some(ref p) = profile {
-            tracing::info!("[ОКР] Найден API ключ для Vision API. Попытка удаленного распознавания...");
+            tracing::info!(
+                "[ОКР] Найден API ключ для Vision API. Попытка удаленного распознавания..."
+            );
             // Пробуем распознать через Vision API (Groq/OpenAI) с настройками из vision конфига
             match run_vision_api_ocr(&img_path, &p.vision, &api_key).await {
                 Ok(text) => text,
@@ -398,12 +433,21 @@ pub async fn run_ocr_on_file(
         run_local_tesseract_ocr_pipeline(img_path, cache_dir).await?
     };
 
-    tracing::info!("[ОКР] Распознавание завершено. Извлечено {} символов.", ocr_result.len());
+    tracing::info!(
+        "[ОКР] Распознавание завершено. Извлечено {} символов.",
+        ocr_result.len()
+    );
     Ok(ocr_result)
 }
 
-async fn run_local_tesseract_ocr_pipeline(img_path: PathBuf, cache_dir: &str) -> Result<String, anyhow::Error> {
-    tracing::info!("[ОКР] Запуск локального пайплайна Tesseract для изображения {:?}", img_path);
+async fn run_local_tesseract_ocr_pipeline(
+    img_path: PathBuf,
+    cache_dir: &str,
+) -> Result<String, anyhow::Error> {
+    tracing::info!(
+        "[ОКР] Запуск локального пайплайна Tesseract для изображения {:?}",
+        img_path
+    );
     // 1. Обеспечиваем наличие языковых файлов rus/eng
     let tessdata_dir = match ensure_tessdata_downloaded(cache_dir).await {
         Ok(dir) => Some(dir),
@@ -501,7 +545,11 @@ async fn run_vision_api_ocr(
     if !res.status().is_success() {
         let status = res.status();
         let err_text = res.text().await?;
-        tracing::error!("[ОКР:VisionAPI] Ошибка ответа Vision API ({}): {}", status, err_text);
+        tracing::error!(
+            "[ОКР:VisionAPI] Ошибка ответа Vision API ({}): {}",
+            status,
+            err_text
+        );
         return Err(anyhow::anyhow!("API Error ({}): {}", url, err_text));
     }
 
@@ -516,7 +564,10 @@ async fn run_vision_api_ocr(
         .trim()
         .to_string();
 
-    tracing::info!("[ОКР:VisionAPI] Ответ от Vision API успешно получен (символов: {}).", content.len());
+    tracing::info!(
+        "[ОКР:VisionAPI] Ответ от Vision API успешно получен (символов: {}).",
+        content.len()
+    );
     Ok(content)
 }
 
