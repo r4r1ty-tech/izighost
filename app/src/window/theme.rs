@@ -113,7 +113,10 @@ pub fn field_label(ui: &mut egui::Ui, text: &str) {
 /// Строка формы: подпись + текстовое поле
 pub fn form_row(ui: &mut egui::Ui, label: &str, value: &mut String) {
     ui.horizontal(|ui| {
-        ui.add_sized([120.0, 20.0], egui::Label::new(RichText::new(label).color(TEXT_SECONDARY)));
+        ui.add_sized(
+            [120.0, 20.0],
+            egui::Label::new(RichText::new(label).color(TEXT_SECONDARY)),
+        );
         ui.add(egui::TextEdit::singleline(value).desired_width(ui.available_width()));
     });
 }
@@ -121,7 +124,10 @@ pub fn form_row(ui: &mut egui::Ui, label: &str, value: &mut String) {
 /// Строка формы с паролем: подпись + скрытое поле + кнопка показать/скрыть
 pub fn form_password_row(ui: &mut egui::Ui, label: &str, value: &mut String, visible: &mut bool) {
     ui.horizontal(|ui| {
-        ui.add_sized([120.0, 20.0], egui::Label::new(RichText::new(label).color(TEXT_SECONDARY)));
+        ui.add_sized(
+            [120.0, 20.0],
+            egui::Label::new(RichText::new(label).color(TEXT_SECONDARY)),
+        );
         ui.add(
             egui::TextEdit::singleline(value)
                 .password(!*visible)
@@ -130,9 +136,13 @@ pub fn form_password_row(ui: &mut egui::Ui, label: &str, value: &mut String, vis
         if ui
             .add(
                 egui::Button::new(
-                    RichText::new(if *visible { "Скрыть" } else { "Показать" })
-                        .size(11.0)
-                        .color(TEXT_SECONDARY),
+                    RichText::new(if *visible {
+                        "Скрыть"
+                    } else {
+                        "Показать"
+                    })
+                    .size(11.0)
+                    .color(TEXT_SECONDARY),
                 )
                 .fill(BG_BUTTON)
                 .corner_radius(4.0),
@@ -143,7 +153,6 @@ pub fn form_password_row(ui: &mut egui::Ui, label: &str, value: &mut String, vis
         }
     });
 }
-
 
 /// Статус индикатор (цветная точка + текст)
 pub fn status_indicator(ui: &mut egui::Ui, label: &str, value: &str, is_ok: bool) {
