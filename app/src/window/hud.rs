@@ -61,6 +61,65 @@ impl HudState {
         }
     }
 
+    /// Обработка вставки изображений из буфера обмена (Ctrl+V) и drag-and-drop файлов
+    fn handle_image_inputs(&mut self, ui: &mut egui::Ui, dbus_client: &Option<Arc<DaemonClient>>) {
+        // 1. Проверяем Ctrl+V (вставка из буфера обмена)
+        let ctrl_v = ui.input(|i| i.key_pressed(egui::Key::V) && i.modifiers.command);
+        if ctrl_v {
+            if let Ok(mut clipboard) = arboard::Clipboard::new() {
+                if let Ok(image_data) = clipboard.get_image() {
+                    if let Some(client) = dbus_client {
+                        let client = client.clone();
+                        self.is_generating = true;
+                        tokio::spawn(async move {
+                            match save_clipboard_image(image_data) {
+                                Ok(temp_path) => {
+                                    let path_str = temp_path.to_string_lossy().to_string();
+                                    if let Err(e) = client.trigger_ocr_from_file(&path_str).await {
+                                        eprintln!("Ошибка вызова trigger_ocr_from_file: {:?}", e);
+                                    }
+                                }
+                                Err(e) => {
+                                    eprintln!("Ошибка сохранения изображения из буфера: {:?}", e);
+                                }
+                            }
+                        });
+                    }
+                }
+            }
+        }
+
+        // 2. Проверяем Drag-and-Drop файлов
+        let dropped_files = ui.input(|i| i.raw.dropped_files.clone());
+        if !dropped_files.is_empty() {
+            for file in dropped_files {
+                if let Some(ref path) = file.path {
+                    if let Some(client) = dbus_client {
+                        let client = client.clone();
+                        let original_path = path.clone();
+                        self.is_generating = true;
+                        tokio::spawn(async move {
+                            match copy_to_temp(original_path) {
+                                Ok(temp_path) => {
+                                    let path_str = temp_path.to_string_lossy().to_string();
+                                    if let Err(e) = client.trigger_ocr_from_file(&path_str).await {
+                                        eprintln!("Ошибка вызова trigger_ocr_from_file: {:?}", e);
+                                    }
+                                }
+                                Err(e) => {
+                                    eprintln!(
+                                        "Ошибка копирования файла во временную папку: {:?}",
+                                        e
+                                    );
+                                }
+                            }
+                        });
+                    }
+                }
+            }
+        }
+    }
+
     /// Отрисовка HUD интерфейса
     pub fn draw(
         &mut self,
@@ -68,6 +127,8 @@ impl HudState {
         dbus_client: &Option<Arc<DaemonClient>>,
         active_profile: &Option<String>,
     ) {
+        self.handle_image_inputs(ui, dbus_client);
+
         ui.style_mut().spacing.item_spacing = Vec2::new(8.0, 8.0);
 
         // Обновляем имя активного профиля
@@ -134,12 +195,13 @@ impl HudState {
             // Кнопки управления (справа налево)
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 // Выход
-                if header_btn(ui, "\u{2715}", "Закрыть приложение", false).clicked() {
+                if header_btn(ui, "x", "Закрыть приложение", false).clicked() {
                     ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
                 }
 
                 // Настройки
-                if header_btn(ui, "\u{2699}", "Настройки профилей", false).clicked() {
+                if header_btn(ui, "\u{2699}", "Настройки профилей", false).clicked()
+                {
                     self.show_preferences = !self.show_preferences;
                 }
 
@@ -169,7 +231,7 @@ impl HudState {
                             } else {
                                 client_clone.unpin_window_by_pid(pid).await
                             };
-                            if let Err(_) = res {
+                            if res.is_err() {
                                 // Ошибка pinning — предупреждение показывается в UI баннере
                             }
                         });
@@ -177,8 +239,7 @@ impl HudState {
                 }
 
                 // Перетаскивание
-                let drag_resp =
-                    header_btn(ui, "\u{2630}", "Зажмите для перемещения окна", false);
+                let drag_resp = header_btn(ui, "\u{2630}", "Зажмите для перемещения окна", false);
                 if drag_resp.is_pointer_button_down_on() {
                     ui.ctx().send_viewport_cmd(egui::ViewportCommand::StartDrag);
                 }
@@ -202,7 +263,7 @@ impl HudState {
                 );
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui
-                        .add(egui::Button::new(RichText::new("\u{2715}").size(11.0)).frame(false))
+                        .add(egui::Button::new(RichText::new("x").size(11.0)).frame(false))
                         .clicked()
                     {
                         self.show_extension_warning = false;
@@ -225,8 +286,7 @@ impl HudState {
                     ui.vertical_centered(|ui| {
                         ui.add_space(30.0);
                         ui.label(
-                            RichText::new("Ассистент готов к работе.")
-                                .color(theme::TEXT_MUTED),
+                            RichText::new("Ассистент готов к работе.").color(theme::TEXT_MUTED),
                         );
                         ui.label(
                             RichText::new("Задайте вопрос текстом, скриншотом или голосом.")
@@ -259,9 +319,7 @@ impl HudState {
                                 .inner_margin(8.0)
                                 .corner_radius(8.0)
                                 .show(ui, |ui| {
-                                    ui.label(
-                                        RichText::new(text).color(theme::TEXT_PRIMARY),
-                                    );
+                                    ui.label(RichText::new(text).color(theme::TEXT_PRIMARY));
                                 });
                         });
                         ui.add_space(4.0);
@@ -295,14 +353,46 @@ impl HudState {
                     .corner_radius(6.0)
                     .min_size(egui::vec2(28.0, 28.0)),
                 )
-                .on_hover_text("Сделать скриншот и распознать текст (Super+Shift+S)");
+                .on_hover_text("Выделить область экрана и распознать текст");
 
             if ocr_btn.clicked() {
                 if let Some(client) = dbus_client {
                     let client = client.clone();
                     tokio::spawn(async move {
-                        if let Err(e) = client.trigger_ocr().await {
-                            eprintln!("Ошибка вызова TriggerOcr: {:?}", e);
+                        use ashpd::desktop::screenshot::Screenshot;
+                        match Screenshot::request()
+                            .interactive(true)
+                            .modal(true)
+                            .send()
+                            .await
+                        {
+                            Ok(request) => match request.response() {
+                                Ok(response) => {
+                                    let uri = response.uri();
+                                    if let Ok(path) = uri.to_file_path() {
+                                        let path_str = path.to_string_lossy().to_string();
+                                        if let Err(e) =
+                                            client.trigger_ocr_from_file(&path_str).await
+                                        {
+                                            eprintln!(
+                                                "Ошибка вызова trigger_ocr_from_file: {:?}",
+                                                e
+                                            );
+                                        }
+                                    } else {
+                                        eprintln!(
+                                            "Не удалось получить локальный путь из URI: {:?}",
+                                            uri
+                                        );
+                                    }
+                                }
+                                Err(e) => {
+                                    eprintln!("Ошибка ответа Screenshot: {:?}", e);
+                                }
+                            },
+                            Err(e) => {
+                                eprintln!("Ошибка запроса Screenshot: {:?}", e);
+                            }
                         }
                     });
                 }
@@ -350,18 +440,33 @@ impl HudState {
                 egui::TextEdit::singleline(&mut self.input_text).hint_text("Задать вопрос..."),
             );
 
-            // Кнопка отправки
-            let send_btn = ui.add(
-                egui::Button::new(RichText::new("\u{27A4}").size(16.0).color(theme::TEXT_PRIMARY))
-                    .fill(theme::ACCENT)
-                    .corner_radius(6.0)
-                    .min_size(egui::vec2(28.0, 28.0)),
+            // Кнопка отправки или остановки печати в зависимости от состояния генерации
+            let (btn_text, btn_color, is_stop) = if self.is_generating {
+                ("■", theme::RED_SOFT, true)
+            } else {
+                ("▶", theme::ACCENT, false)
+            };
+
+            let action_btn = ui.add(
+                egui::Button::new(
+                    RichText::new(btn_text)
+                        .size(14.0)
+                        .color(theme::TEXT_PRIMARY),
+                )
+                .fill(btn_color)
+                .corner_radius(6.0)
+                .min_size(egui::vec2(28.0, 28.0)),
             );
-            let send_clicked = send_btn.clicked();
+
+            let btn_clicked = action_btn.clicked();
             let enter_pressed =
                 text_edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
 
-            if (send_clicked || enter_pressed) && !self.input_text.trim().is_empty() {
+            if is_stop {
+                if btn_clicked {
+                    self.is_generating = false;
+                }
+            } else if (btn_clicked || enter_pressed) && !self.input_text.trim().is_empty() {
                 let text = self.input_text.trim().to_string();
                 self.chat_messages.push(("user".to_string(), text.clone()));
                 self.input_text.clear();
@@ -379,12 +484,7 @@ impl HudState {
 }
 
 /// Кнопка заголовка HUD (текстовая иконка)
-fn header_btn(
-    ui: &mut egui::Ui,
-    icon: &str,
-    tooltip: &str,
-    active: bool,
-) -> egui::Response {
+fn header_btn(ui: &mut egui::Ui, icon: &str, tooltip: &str, active: bool) -> egui::Response {
     let color = if active {
         theme::TEXT_PRIMARY
     } else {
@@ -393,4 +493,43 @@ fn header_btn(
 
     ui.add(egui::Button::new(RichText::new(icon).size(15.0).color(color)).frame(false))
         .on_hover_text(tooltip)
+}
+
+/// Сохраняет изображение из буфера обмена во временный файл PNG.
+fn save_clipboard_image(
+    image_data: arboard::ImageData,
+) -> Result<std::path::PathBuf, anyhow::Error> {
+    use image::{ImageBuffer, Rgba};
+    let width = image_data.width as u32;
+    let height = image_data.height as u32;
+    let bytes = image_data.bytes.into_owned();
+
+    let buffer: ImageBuffer<Rgba<u8>, Vec<u8>> = ImageBuffer::from_raw(width, height, bytes)
+        .ok_or_else(|| anyhow::anyhow!("Не удалось создать буфер изображения из буфера обмена"))?;
+
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let temp_path = std::env::temp_dir().join(format!("izighost_clipboard_{}.png", timestamp));
+
+    buffer.save(&temp_path)?;
+    Ok(temp_path)
+}
+
+/// Копирует перетащенный файл во временную директорию перед отправкой на OCR.
+fn copy_to_temp(original_path: std::path::PathBuf) -> Result<std::path::PathBuf, anyhow::Error> {
+    let extension = original_path
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .unwrap_or("png");
+
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let temp_path = std::env::temp_dir().join(format!("izighost_drop_{}.{}", timestamp, extension));
+
+    std::fs::copy(&original_path, &temp_path)?;
+    Ok(temp_path)
 }
