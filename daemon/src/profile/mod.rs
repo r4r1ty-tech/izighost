@@ -68,11 +68,13 @@ impl ProfileManager {
             })?;
         }
 
+        let existing_profile = self.get_profile(&profile.id).ok();
+
         // Handle parsing CV if path is set and text is empty (or path changed)
         if !profile.cv_path.is_empty() {
-            let parse_needed = match self.get_profile(&profile.id) {
-                Ok(existing) => existing.cv_path != profile.cv_path || profile.cv_text.is_empty(),
-                Err(_) => true,
+            let parse_needed = match &existing_profile {
+                Some(existing) => existing.cv_path != profile.cv_path || profile.cv_text.is_empty(),
+                None => true,
             };
             if parse_needed {
                 match parser::parse_file(&profile.cv_path).await {
@@ -86,11 +88,11 @@ impl ProfileManager {
 
         // Handle parsing vacancy if path is set and text is empty
         if !profile.vacancy_path.is_empty() {
-            let parse_needed = match self.get_profile(&profile.id) {
-                Ok(existing) => {
+            let parse_needed = match &existing_profile {
+                Some(existing) => {
                     existing.vacancy_path != profile.vacancy_path || profile.vacancy_text.is_empty()
                 }
-                Err(_) => true,
+                None => true,
             };
             if parse_needed {
                 match parser::parse_file(&profile.vacancy_path).await {
