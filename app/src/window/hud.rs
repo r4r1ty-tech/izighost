@@ -360,6 +360,7 @@ impl HudState {
             if ocr_btn.clicked() {
                 if let Some(client) = dbus_client {
                     let client = client.clone();
+                    self.is_generating = true;
                     tokio::spawn(async move {
                         use ashpd::desktop::screenshot::Screenshot;
                         match Screenshot::request()
@@ -467,6 +468,12 @@ impl HudState {
             if is_stop {
                 if btn_clicked {
                     self.is_generating = false;
+                    if let Some(client) = dbus_client {
+                        let client = client.clone();
+                        tokio::spawn(async move {
+                            let _ = client.cancel_generation().await;
+                        });
+                    }
                 }
             } else if (btn_clicked || enter_pressed) && !self.input_text.trim().is_empty() {
                 let text = self.input_text.trim().to_string();

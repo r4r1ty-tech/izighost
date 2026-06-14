@@ -10,6 +10,7 @@ pub struct DaemonInterface {
     context_store: ContextStore,
     rvms_manager: RvmsManager,
     _config: DaemonConfig,
+    cancel_generation: std::sync::Arc<std::sync::atomic::AtomicBool>,
     recording_state: tokio::sync::Mutex<Option<(tokio::process::Child, std::path::PathBuf)>>,
 }
 
@@ -25,6 +26,7 @@ impl DaemonInterface {
             context_store,
             rvms_manager,
             _config: config,
+            cancel_generation: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
             recording_state: tokio::sync::Mutex::new(None),
         }
     }
@@ -97,6 +99,9 @@ impl DaemonInterface {
         let system_prompt = crate::prompt_assembler::assemble_system_prompt(&profile);
         let history = self.context_store.get_history().await;
 
+        // Сбрасываем флаг отмены перед началом новой генерации
+        self.cancel_generation.store(false, std::sync::atomic::Ordering::SeqCst);
+
         let mut full_response = String::new();
         match crate::llm::stream_chat_completion(
             &profile.llm.base_url,
@@ -109,6 +114,10 @@ impl DaemonInterface {
             Ok(mut stream) => {
                 use futures::StreamExt;
                 while let Some(chunk_res) = stream.next().await {
+                    if self.cancel_generation.load(std::sync::atomic::Ordering::SeqCst) {
+                        tracing::info!("Генерация прервана пользователем.");
+                        break;
+                    }
                     match chunk_res {
                         Ok(chunk) => {
                             full_response.push_str(&chunk);
@@ -139,6 +148,11 @@ impl DaemonInterface {
             .await
             .map_err(|e| zbus::fdo::Error::Failed(e.to_string()))?;
 
+        Ok(())
+    }
+
+    async fn cancel_generation(&self) -> zbus::fdo::Result<()> {
+        self.cancel_generation.store(true, std::sync::atomic::Ordering::SeqCst);
         Ok(())
     }
 

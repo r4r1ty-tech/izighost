@@ -30,6 +30,7 @@ pub trait Daemon {
     async fn delete_profile(&self, id: &str) -> zbus::Result<()>;
     async fn set_active_profile(&self, id: &str) -> zbus::Result<()>;
     async fn get_active_profile(&self) -> zbus::Result<Profile>;
+    async fn cancel_generation(&self) -> zbus::Result<()>;
 
     #[zbus(signal)]
     async fn chat_chunk(&self, delta_text: String) -> zbus::Result<()>;
@@ -131,6 +132,10 @@ impl DaemonClient {
 
     pub async fn get_active_profile(&self) -> zbus::Result<Profile> {
         self.proxy.get_active_profile().await
+    }
+
+    pub async fn cancel_generation(&self) -> zbus::Result<()> {
+        self.proxy.cancel_generation().await
     }
 
     pub async fn pin_window_by_pid(&self, pid: u32) -> zbus::Result<bool> {
