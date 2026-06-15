@@ -6,6 +6,14 @@ use eframe::egui::{Color32, RichText, Stroke, Vec2};
 use std::sync::Arc;
 use tokio::sync::mpsc::Sender;
 
+#[derive(Clone)]
+struct HudIcons {
+    screen: egui::TextureHandle,
+    mic: egui::TextureHandle,
+    send: egui::TextureHandle,
+    stop: egui::TextureHandle,
+}
+
 pub struct HudState {
     pub input_text: String,
     pub chat_messages: Vec<(String, String)>, // (role, message)
@@ -23,6 +31,7 @@ pub struct HudState {
     pub screenshot_texture: Option<egui::TextureHandle>,
     pub is_taking_screenshot: bool,
     pub is_transcribing: bool,
+    icons: Option<HudIcons>,
 }
 
 impl HudState {
@@ -44,7 +53,37 @@ impl HudState {
             screenshot_texture: None,
             is_taking_screenshot: false,
             is_transcribing: false,
+            icons: None,
         }
+    }
+
+    fn ensure_icons(&mut self, ctx: &egui::Context) {
+        if self.icons.is_some() {
+            return;
+        }
+
+        self.icons = Some(HudIcons {
+            screen: load_embedded_icon(
+                ctx,
+                "izighost-icon-screen",
+                include_bytes!("../../data/icons/screen.png"),
+            ),
+            mic: load_embedded_icon(
+                ctx,
+                "izighost-icon-mic",
+                include_bytes!("../../data/icons/mic.png"),
+            ),
+            send: load_embedded_icon(
+                ctx,
+                "izighost-icon-send",
+                include_bytes!("../../data/icons/send.png"),
+            ),
+            stop: load_embedded_icon(
+                ctx,
+                "izighost-icon-stop",
+                include_bytes!("../../data/icons/stop.png"),
+            ),
+        });
     }
 
     /// Обработка входящих D-Bus сигналов
@@ -413,6 +452,9 @@ impl HudState {
         dbus_client: &Option<Arc<DaemonClient>>,
         gui_event_tx: Sender<GuiEvent>,
     ) {
+        self.ensure_icons(ui.ctx());
+        let icons = self.icons.clone().expect("HUD icons are loaded");
+
         if self.is_taking_screenshot {
             ui.vertical(|ui| {
                 ui.horizontal(|ui| {
@@ -477,20 +519,27 @@ impl HudState {
         }
 
         ui.horizontal(|ui| {
+            let icon_button_size = 36.0;
+            let spacing = ui.spacing().item_spacing.x;
+            let input_width = (ui.available_width() - icon_button_size * 3.0 - spacing * 3.0).max(160.0);
+
             // Кнопка скриншота (OCR)
-            let ocr_btn = ui
-                .add_enabled(
-                    !self.is_taking_screenshot,
-                    egui::Button::new(
-                        RichText::new("Экран")
-                            .size(12.0)
-                            .color(theme::TEXT_SECONDARY),
-                    )
-                    .fill(theme::BG_BUTTON)
-                    .corner_radius(6.0)
-                    .min_size(egui::vec2(28.0, 28.0)),
-                )
-                .on_hover_text("Сделать скриншот виртуального монитора");
+            let ocr_btn = icon_button(
+                ui,
+                &icons.screen,
+                icon_button_size,
+                theme::BG_BUTTON,
+                Color32::from_rgb(50, 50, 56),
+                Stroke::new(
+                    1.0,
+                    if self.is_taking_screenshot {
+                        theme::ACCENT
+                    } else {
+                        theme::BORDER_SUBTLE
+                    },
+                ),
+            )
+            .on_hover_text("Экран");
 
             if ocr_btn.clicked() {
                 tracing::info!("GUI: Нажата кнопка скриншота (фотоаппарат)");
@@ -547,24 +596,29 @@ impl HudState {
                 }
             }
 
-            // Кнопка голосового ввода (ASR)
             let mic_bg = if self.is_listening {
                 theme::GREEN
             } else {
                 theme::BG_BUTTON
             };
-            let asr_btn = ui
-                .add(
-                    egui::Button::new(
-                        RichText::new("Голос")
-                            .size(12.0)
-                            .color(theme::TEXT_SECONDARY),
-                    )
-                    .fill(mic_bg)
-                    .corner_radius(6.0)
-                    .min_size(egui::vec2(28.0, 28.0)),
-                )
-                .on_hover_text("Голосовой ввод");
+            let mic_stroke = if self.is_listening {
+                Stroke::new(1.0, theme::GREEN)
+            } else {
+                Stroke::new(1.0, theme::BORDER_SUBTLE)
+            };
+            let asr_btn = icon_button(
+                ui,
+                &icons.mic,
+                icon_button_size,
+                mic_bg,
+                if self.is_listening {
+                    Color32::from_rgb(20, 205, 145)
+                } else {
+                    Color32::from_rgb(50, 50, 56)
+                },
+                mic_stroke,
+            )
+            .on_hover_text("Голос");
 
             if asr_btn.clicked() {
                 if let Some(client) = dbus_client {
@@ -587,31 +641,32 @@ impl HudState {
                 }
             }
 
-            // Поле текстового ввода
-            let spacing = ui.spacing().item_spacing.x;
-            let input_width = ui.available_width() - 28.0 - spacing;
             let text_edit = ui.add_sized(
-                [input_width, 28.0],
-                egui::TextEdit::singleline(&mut self.input_text).hint_text("Задать вопрос..."),
+                [input_width, 34.0],
+                egui::TextEdit::singleline(&mut self.input_text)
+                    .hint_text("Напиши сообщение…"),
             );
 
             // Кнопка отправки или остановки печати в зависимости от состояния генерации
-            let (btn_text, btn_color, is_stop) = if self.is_generating {
-                ("Стоп", theme::RED_SOFT, true)
+            let (btn_color, is_stop) = if self.is_generating {
+                (theme::RED_SOFT, true)
             } else {
-                ("Отправить", theme::ACCENT, false)
+                (theme::ACCENT, false)
             };
 
-            let action_btn = ui.add(
-                egui::Button::new(
-                    RichText::new(btn_text)
-                        .size(12.0)
-                        .color(theme::TEXT_PRIMARY),
-                )
-                .fill(btn_color)
-                .corner_radius(6.0)
-                .min_size(egui::vec2(28.0, 28.0)),
-            );
+            let action_btn = icon_button(
+                ui,
+                if is_stop { &icons.stop } else { &icons.send },
+                icon_button_size,
+                btn_color,
+                if is_stop {
+                    Color32::from_rgb(200, 50, 50)
+                } else {
+                    Color32::from_rgb(115, 118, 255)
+                },
+                Stroke::new(1.0, btn_color),
+            )
+            .on_hover_text(if is_stop { "Стоп" } else { "Отправить" });
 
             let btn_clicked = action_btn.clicked();
             let enter_pressed =
@@ -726,6 +781,48 @@ fn load_image_from_path(path: &std::path::Path) -> Result<egui::ColorImage, imag
     let image_buffer = image.to_rgba8();
     let pixels = image_buffer.as_raw();
     Ok(egui::ColorImage::from_rgba_unmultiplied(size, pixels))
+}
+
+fn load_embedded_icon(ctx: &egui::Context, name: &str, bytes: &[u8]) -> egui::TextureHandle {
+    let image = image::load_from_memory(bytes)
+        .expect("embedded HUD icon must be a valid PNG")
+        .to_rgba8();
+    let size = [image.width() as usize, image.height() as usize];
+    ctx.load_texture(
+        name,
+        egui::ColorImage::from_rgba_unmultiplied(size, image.as_raw()),
+        egui::TextureOptions::LINEAR,
+    )
+}
+
+fn icon_button(
+    ui: &mut egui::Ui,
+    icon: &egui::TextureHandle,
+    size: f32,
+    fill: Color32,
+    hover_fill: Color32,
+    stroke: Stroke,
+) -> egui::Response {
+    let icon_size = Vec2::splat(18.0);
+    let (rect, response) = ui.allocate_exact_size(Vec2::splat(size), egui::Sense::click());
+
+    if ui.is_rect_visible(rect) {
+        let bg = if response.hovered() { hover_fill } else { fill };
+        let rounding = 9.0;
+        ui.painter().rect_filled(rect, rounding, bg);
+        ui.painter()
+            .rect_stroke(rect, rounding, stroke, egui::StrokeKind::Inside);
+
+        let icon_rect = egui::Rect::from_center_size(rect.center(), icon_size);
+        ui.painter().image(
+            icon.id(),
+            icon_rect,
+            egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0)),
+            theme::TEXT_PRIMARY,
+        );
+    }
+
+    response
 }
 
 /// Кнопка заголовка HUD (текстовая иконка)
