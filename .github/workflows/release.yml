@@ -1,0 +1,65 @@
+name: RPM release
+
+on:
+  push:
+    tags:
+      - "v0.1"
+
+permissions:
+  contents: write
+
+jobs:
+  build-rpm:
+    runs-on: ubuntu-latest
+    container: fedora:44
+
+    steps:
+      - name: Получить исходники
+        uses: actions/checkout@v4
+
+      - name: Установить зависимости сборки
+        run: |
+          dnf install -y \
+            cargo \
+            clang-devel \
+            fontconfig-devel \
+            gcc \
+            git \
+            leptonica-devel \
+            libsecret-devel \
+            libxkbcommon-devel \
+            make \
+            pkgconf-pkg-config \
+            rpm-build \
+            rust \
+            tar \
+            tesseract-devel \
+            wayland-devel
+
+      - name: Проверить версию тега
+        run: |
+          test "${GITHUB_REF_NAME}" = "v0.1"
+          grep -q '^version = "0.1.0"$' Cargo.toml
+
+      - name: Собрать единый RPM
+        run: make rpm
+
+      - name: Подготовить артефакт
+        run: |
+          mkdir -p dist
+          find build/rpm/RPMS -type f -name '*.rpm' -exec cp {} dist/ \;
+          test -n "$(find dist -maxdepth 1 -type f -name '*.rpm' -print -quit)"
+
+      - name: Сохранить RPM
+        uses: actions/upload-artifact@v4
+        with:
+          name: izighost-0.1-rpm
+          path: dist/*.rpm
+          if-no-files-found: error
+
+      - name: Создать GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: IziGhost 0.1
+          generate_release_notes: true
+          files: dist/*.rpm

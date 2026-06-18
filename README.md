@@ -94,8 +94,9 @@ GUI/HUD-приложение и фоновый демон — общающихс
 
 - **Cargo workspace** из трёх членов: `crates/common`, `app`, `daemon`.
 - **Rust 2021 edition**.
-- **RPM**-упаковка для **Fedora 44+** (`packaging/fedora/sources/`).
+- **RPM**-упаковка для **Fedora 44+** (`packaging/izighost.spec`).
 - Один `cargo build --release` собирает оба бинаря.
+- Одна команда `make rpm` собирает единый пакет с приложением и демоном.
 
 ## Архитектура
 
@@ -172,8 +173,9 @@ izighost/
 ├── installer/
 │   ├── systemd/           # izighost-daemon.service
 │   └── dbus/              # com.izighost.Daemon.service
-└── packaging/
-    └── fedora/sources/    # RPM-упаковка
+├── packaging/
+│   └── izighost.spec      # единый RPM приложения и демона
+└── Makefile               # сборка RPM одной командой
 ```
 
 ## Требования
@@ -194,7 +196,26 @@ cargo build --release
 ./target/release/izighost-daemon   # фоновый демон
 ```
 
-RPM-пакеты лежат в `packaging/fedora/sources/`.
+Единый RPM-пакет собирается так:
+
+```sh
+sudo dnf install rpm-build
+make rpm
+```
+
+Готовый пакет появится в `build/rpm/RPMS/`. Он содержит `izighost`,
+`izighost-daemon`, D-Bus-активацию и пользовательский systemd-сервис.
+После установки достаточно запустить `izighost`: демон запустится
+автоматически через D-Bus.
+
+Релиз `0.1` собирается GitHub Actions при публикации тега:
+
+```sh
+git tag v0.1
+git push origin v0.1
+```
+
+Workflow создаст GitHub Release `IziGhost 0.1` и приложит готовый RPM.
 
 ## Лицензия
 
